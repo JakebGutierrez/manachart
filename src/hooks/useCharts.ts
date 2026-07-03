@@ -6,6 +6,7 @@ import { decodeSharePayload, reconstructSlots, type ShareSlotStub } from '@/util
 import { isChartShaped } from '@/utils/chartShape'
 import { fetchCollectionSlots } from '@/utils/reconstruct'
 import { sanitizeChartConfig, chartCapacity } from '@/utils/sanitizeChart'
+import { duplicateChart as cloneChart } from '@/utils/duplicateChart'
 
 const CHARTS_KEY = 'mtg-chart:charts'
 const ACTIVE_ID_KEY = 'mtg-chart:activeId'
@@ -278,6 +279,7 @@ export function useCharts(): {
   canRetryReconstruction: boolean
   retryReconstruction: () => void
   createChart: () => void
+  duplicateChart: () => void
   deleteChart: (id: string) => void
   updateChart: (updater: (prev: Chart) => Chart) => void
   renameChart: (id: string, name: string) => void
@@ -483,6 +485,20 @@ export function useCharts(): {
     })
   }, [])
 
+  // Deep-clone the active chart under a new id/name, insert it right after the
+  // source, and make it active. Spread prev so reconstruction/storage context
+  // survives (mirrors createChart). The clone is fully independent (see cloneChart).
+  const duplicateChart = useCallback(() => {
+    setState((prev) => {
+      const source = prev.charts.find((c) => c.id === prev.activeId) ?? prev.charts[0]
+      const clone = cloneChart(source, crypto.randomUUID())
+      const idx = prev.charts.findIndex((c) => c.id === source.id)
+      const charts = [...prev.charts]
+      charts.splice(idx + 1, 0, clone)
+      return { ...prev, charts, activeId: clone.id }
+    })
+  }, [])
+
   const deleteChart = useCallback((id: string) => {
     setState((prev) => {
       const remaining = prev.charts.filter((c) => c.id !== id)
@@ -546,6 +562,7 @@ export function useCharts(): {
     canRetryReconstruction,
     retryReconstruction,
     createChart,
+    duplicateChart,
     deleteChart,
     updateChart,
     renameChart,

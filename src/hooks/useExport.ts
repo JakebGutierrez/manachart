@@ -5,6 +5,12 @@ import { generateCellMap } from '@/utils/cellMap'
 import { fetchAsBlob, loadImage, FetchError } from '@/utils/imageBlob'
 import { fetchCardById } from '@/utils/scryfall'
 import {
+  supportsClipboardImage,
+  supportsFileShare,
+  realClipboardEnv,
+  realShareEnv,
+} from '@/utils/shareSupport'
+import {
   computeExportLayout,
   coverCropRect,
   exportPixelDims,
@@ -30,7 +36,14 @@ export interface UseExportResult {
   setScale: (s: ExportScale) => void
   dismissError: () => void
   dismissWarning: () => void
+  /** Render the PNG and trigger a file download (the default disposal). */
   triggerExport: () => void
+  /** Render the PNG and write it to the clipboard. Resolves on success, rejects on
+   *  failure so the caller can show transient copied/failed feedback. */
+  copyExport: () => Promise<void>
+  /** Render the PNG and hand it to the native share sheet. Resolves quietly (incl.
+   *  when the user dismisses the sheet); only unexpected errors reject. */
+  shareExport: () => Promise<void>
 }
 
 const OVERLAY_FONT_SIZE = 11
@@ -73,6 +86,21 @@ function drawCoverCrop(
   ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh)
 }
 
+function exportFilename(chart: Pick<Chart, 'title' | 'name'>): string {
+  return `${chart.title || chart.name || 'mtg-chart'}.png`
+}
+
+// Disposal for the download path: anchor + click, with a deferred revoke (Safari
+// intermittently aborts a download whose blob URL is revoked synchronously).
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 export function useExport(
   chart: Chart,
   onSlotImageUpdate: (slotIndex: number, imageUris: ScryfallSlot['imageUris']) => void,
@@ -89,8 +117,12 @@ export function useExport(
   }, [])
   const dismissWarning = useCallback(() => setWarning(null), [])
 
-  const triggerExport = useCallback(async () => {
-    if (exportingRef.current) return
+  // Renders the chart to a PNG blob and returns it (or null on a handled failure,
+  // with error/warning state already set). Disposal — download, clipboard, share —
+  // is layered on top by the thin wrappers below, so every output mode goes through
+  // the identical sizing/budget/degradation pipeline instead of duplicating it.
+  const runExport = useCallback(async (): Promise<Blob | null> => {
+    if (exportingRef.current) return null
     exportingRef.current = true
     setExporting(true)
     setError(null)
@@ -150,7 +182,7 @@ export function useExport(
             ? 'This chart is too large to export on iOS — Safari caps the maximum canvas size. Reduce the grid size (fewer rows or columns) and try again.'
             : 'This chart is too large to export on this device. Reduce the grid size (fewer rows or columns) and try again.',
         )
-        return
+        return null
       }
       const { scale: finalScale, downgraded } = sizing
 
@@ -229,7 +261,7 @@ export function useExport(
             ? "Export failed — couldn't load any card art. Check your connection and try again."
             : `Export failed — couldn't load ${failedCards.length} of ${totalFilled} card images (possible rate-limiting or a connection issue). Try again in a moment.`,
         )
-        return
+        return null
       }
 
       // Draw
@@ -375,22 +407,16 @@ export function useExport(
         }
       }
 
-      // Download
-      await new Promise<void>((resolve, reject) => {
-        canvas.toBlob((blob) => {
-          if (!blob) {
+      // Produce the final PNG blob. Disposal (download / clipboard / share) is the
+      // caller's job — the pipeline only renders and hands back the blob, so all
+      // three output modes share identical geometry and degradation behaviour.
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((b) => {
+          if (!b) {
             reject(new Error('Export failed — try 1× scale or a smaller grid.'))
             return
           }
-          const url = URL.createObjectURL(blob)
-          const a = document.createElement('a')
-          a.href = url
-          a.download = `${chart.title || chart.name || 'mtg-chart'}.png`
-          a.click()
-          // Defer the revoke — Safari intermittently aborts a download whose blob
-          // URL is revoked synchronously right after click().
-          setTimeout(() => URL.revokeObjectURL(url), 1000)
-          resolve()
+          resolve(b)
         }, 'image/png')
       })
 
@@ -408,8 +434,11 @@ export function useExport(
         warnings.push(`Exported, but couldn't load art for: ${failedCards.join(', ')}.`)
       }
       if (warnings.length > 0) setWarning(warnings.join(' '))
+
+      return blob
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Export failed.')
+      return null
     } finally {
       blobUrls.forEach((url) => URL.revokeObjectURL(url))
       setExporting(false)
@@ -417,5 +446,53 @@ export function useExport(
     }
   }, [chart, scale, onSlotImageUpdate])
 
-  return { exporting, error, warning, scale, setScale, dismissError, dismissWarning, triggerExport }
+  // Download disposal (existing default behaviour).
+  const triggerExport = useCallback(() => {
+    void runExport().then((blob) => {
+      if (blob) downloadBlob(blob, exportFilename(chart))
+    })
+  }, [runExport, chart])
+
+  // Clipboard disposal. Safari requires the *promise-form* ClipboardItem and that
+  // navigator.clipboard.write be called synchronously inside the user gesture — so
+  // this is NOT async: it kicks off runExport() and hands the pending blob promise
+  // straight to ClipboardItem, all within the click's synchronous frame.
+  const copyExport = useCallback((): Promise<void> => {
+    if (!supportsClipboardImage(realClipboardEnv())) {
+      return Promise.reject(new Error('Clipboard image copy is not supported in this browser.'))
+    }
+    const blobPromise = runExport().then((blob) => {
+      if (!blob) throw new Error('Export produced no image to copy.')
+      return blob
+    })
+    return navigator.clipboard.write([new ClipboardItem({ 'image/png': blobPromise })])
+  }, [runExport])
+
+  // Native share-sheet disposal (mobile). navigator.share needs the real File at
+  // call time (no promise form), so we render first, then share; a user-dismissed
+  // sheet rejects with AbortError, which is a non-event and swallowed.
+  const shareExport = useCallback(async (): Promise<void> => {
+    const blob = await runExport()
+    if (!blob) return
+    const file = new File([blob], exportFilename(chart), { type: 'image/png' })
+    if (!supportsFileShare(file, realShareEnv())) return
+    try {
+      await navigator.share({ files: [file] })
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') throw err
+    }
+  }, [runExport, chart])
+
+  return {
+    exporting,
+    error,
+    warning,
+    scale,
+    setScale,
+    dismissError,
+    dismissWarning,
+    triggerExport,
+    copyExport,
+    shareExport,
+  }
 }

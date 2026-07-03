@@ -60,7 +60,12 @@ export default function SearchPanel({ chart, onSlotFill }: Props) {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         aria-label="Search cards"
+        aria-describedby="search-syntax-hint"
       />
+      <p className={styles.searchHint} id="search-syntax-hint">
+        Supports Scryfall syntax — e.g. <code>t:dragon</code>, <code>set:ktk</code>,{' '}
+        <code>is:borderless</code>
+      </p>
       <button
         className={styles.uploadBtn}
         type="button"

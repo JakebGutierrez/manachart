@@ -23,6 +23,19 @@
   color: var(--text-muted);
 }
 
+.searchHint {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.searchHint code {
+  font-family: monospace;
+  font-size: 10.5px;
+  color: var(--text-secondary);
+}
+
 .status {
   font-size: 12px;
   color: var(--text-muted);

@@ -44,7 +44,7 @@ type CropValues = { cropX: number; cropY: number; cropScale: number }
 function App() {
   const {
     charts, activeId, activeChart,
-    createChart, deleteChart, updateChart, renameChart, setActiveId,
+    createChart, duplicateChart, deleteChart, updateChart, renameChart, setActiveId,
     isReconstructing, reconstructionError, reconstructionWarning, storageError,
     canRetryReconstruction, retryReconstruction,
     dismissReconstructionError, dismissReconstructionWarning, dismissStorageError,
@@ -120,6 +120,14 @@ function App() {
     setSelectedSlotIndex(null)
     createChart()
   }, [createChart])
+
+  // Duplicate the active chart. Like create/select, the new chart becomes active so
+  // its (fresh) history starts clean and any stale crop selection is cleared.
+  const handleDuplicateChart = useCallback(() => {
+    setHistory({ past: [], future: [] })
+    setSelectedSlotIndex(null)
+    duplicateChart()
+  }, [duplicateChart])
 
   const handleDeleteChart = useCallback(
     (id: string) => {
@@ -364,6 +372,15 @@ function App() {
     return navigator.clipboard.writeText(url).then(() => customSlotsOmitted)
   }, [activeChart])
 
+  // Web Share for the link (mobile). Only wired to a control that renders where
+  // navigator.share exists; a user-dismissed sheet rejects with AbortError, which
+  // the ControlPanel handler swallows.
+  const handleShareLink = useCallback((): Promise<void> => {
+    const { encoded } = encodeShareLink(activeChart)
+    const url = `${window.location.origin}${window.location.pathname}?c=${encoded}`
+    return navigator.share({ url })
+  }, [activeChart])
+
   const handleFaceToggle = useCallback(
     (slotIndex: number) => {
       updateChartWithHistory((prev) => {
@@ -477,6 +494,8 @@ function App() {
     dismissError,
     dismissWarning,
     triggerExport,
+    copyExport,
+    shareExport,
   } = useExport(activeChart, handleSlotImageUpdate)
 
   const notifications = (
@@ -552,6 +571,7 @@ function App() {
         onLayoutModeChange={handleLayoutModeChange}
         onSelectChart={handleSelectChart}
         onCreateChart={handleCreateChart}
+        onDuplicateChart={handleDuplicateChart}
         onDeleteChart={handleDeleteChart}
         onRenameChart={renameChart}
         canUndo={history.past.length > 0 && !showImportModal}
@@ -571,6 +591,9 @@ function App() {
         onSort={handleSort}
         onShuffle={handleShuffle}
         onCopyLink={handleCopyLink}
+        onCopyImage={copyExport}
+        onShareImage={shareExport}
+        onShareLink={handleShareLink}
       />
       {showImportModal && (
         <ImportModal

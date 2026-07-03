@@ -1,7 +1,14 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import type { Chart, Slot, NumericStyleField, NameDisplayMode, DisplayMode, HeroConfig } from '@/types/chart'
 import type { SortKey } from '@/utils/sort'
 import { ALLOWED_TITLE_FONTS } from '@/utils/shareLink'
+import {
+  supportsClipboardImage,
+  supportsFileShare,
+  supportsUrlShare,
+  realClipboardEnv,
+  realShareEnv,
+} from '@/utils/shareSupport'
 
 type LayoutMode = 'uniform' | 'commander' | 'partner'
 
@@ -32,6 +39,7 @@ interface Props {
   onLayoutModeChange: (mode: LayoutMode) => void
   onSelectChart: (id: string) => void
   onCreateChart: () => void
+  onDuplicateChart: () => void
   onDeleteChart: (id: string) => void
   onRenameChart: (id: string, name: string) => void
   canUndo: boolean
@@ -51,6 +59,9 @@ interface Props {
   onSort: (key: SortKey) => void
   onShuffle: () => void
   onCopyLink: () => Promise<number>
+  onCopyImage: () => Promise<void>
+  onShareImage: () => Promise<void>
+  onShareLink: () => Promise<void>
   mobileOpen?: boolean
 }
 
@@ -59,9 +70,10 @@ function ChartPicker({
   activeId,
   onSelectChart,
   onCreateChart,
+  onDuplicateChart,
   onDeleteChart,
   onRenameChart,
-}: Pick<Props, 'charts' | 'activeId' | 'onSelectChart' | 'onCreateChart' | 'onDeleteChart' | 'onRenameChart'>) {
+}: Pick<Props, 'charts' | 'activeId' | 'onSelectChart' | 'onCreateChart' | 'onDuplicateChart' | 'onDeleteChart' | 'onRenameChart'>) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draftName, setDraftName] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -88,14 +100,26 @@ function ChartPicker({
     <section className={styles.section}>
       <div className={styles.pickerHeader}>
         <h2 className={styles.sectionLabel}>Charts</h2>
-        <button
-          className={styles.pickerAdd}
-          type="button"
-          aria-label="New chart"
-          onClick={onCreateChart}
-        >
-          +
-        </button>
+        <div className={styles.pickerActions}>
+          <button
+            className={styles.pickerAdd}
+            type="button"
+            aria-label="Duplicate chart"
+            title="Duplicate chart"
+            onClick={onDuplicateChart}
+          >
+            ⧉
+          </button>
+          <button
+            className={styles.pickerAdd}
+            type="button"
+            aria-label="New chart"
+            title="New chart"
+            onClick={onCreateChart}
+          >
+            +
+          </button>
+        </div>
       </div>
       <ul className={styles.pickerList}>
         {charts.map((c) => {
@@ -286,6 +310,7 @@ export default function ControlPanel({
   onLayoutModeChange,
   onSelectChart,
   onCreateChart,
+  onDuplicateChart,
   onDeleteChart,
   onRenameChart,
   canUndo,
@@ -305,6 +330,9 @@ export default function ControlPanel({
   onSort,
   onShuffle,
   onCopyLink,
+  onCopyImage,
+  onShareImage,
+  onShareLink,
   mobileOpen,
 }: Props) {
   const occupiedCount = chart.slots.filter((s) => s != null).length
@@ -313,6 +341,19 @@ export default function ControlPanel({
   const [copyFailed, setCopyFailed] = useState(false)
   const [customSlotsNotice, setCustomSlotsNotice] = useState(0)
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [imageCopied, setImageCopied] = useState(false)
+  const [imageCopyFailed, setImageCopyFailed] = useState(false)
+  const imageCopyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Feature-detected once — desktop/unsupported browsers simply don't render the
+  // extra affordances (they keep download + copy-link). canShareImage needs a
+  // representative file for canShare({ files }), so we probe with a tiny PNG.
+  const canCopyImage = useMemo(() => supportsClipboardImage(realClipboardEnv()), [])
+  const canShareImage = useMemo(
+    () => supportsFileShare(new File(['x'], 'probe.png', { type: 'image/png' }), realShareEnv()),
+    [],
+  )
+  const canShareLink = useMemo(() => supportsUrlShare(realShareEnv()), [])
 
   function handleCopyLink() {
     if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
@@ -332,6 +373,31 @@ export default function ControlPanel({
     })
   }
 
+  // Copy the rendered PNG to the clipboard, mirroring the copy-link transient
+  // success/failure feedback. onCopyImage re-runs the export pipeline for the blob.
+  function handleCopyImage() {
+    if (imageCopyTimeoutRef.current) clearTimeout(imageCopyTimeoutRef.current)
+    setImageCopyFailed(false)
+    onCopyImage().then(() => {
+      setImageCopied(true)
+      imageCopyTimeoutRef.current = setTimeout(() => setImageCopied(false), 1500)
+    }).catch(() => {
+      setImageCopied(false)
+      setImageCopyFailed(true)
+      imageCopyTimeoutRef.current = setTimeout(() => setImageCopyFailed(false), 2000)
+    })
+  }
+
+  // Native share sheet — the OS sheet is its own feedback, so no transient state.
+  // A dismissed sheet / already-handled render failure resolves quietly.
+  function handleShareImage() {
+    onShareImage().catch(() => {})
+  }
+
+  function handleShareLink() {
+    onShareLink().catch(() => {})
+  }
+
   return (
     <aside className={`${styles.panel} ${mobileOpen ? styles.panelOpen : ''}`}>
       <header className={styles.header}>
@@ -344,6 +410,7 @@ export default function ControlPanel({
           activeId={activeId}
           onSelectChart={onSelectChart}
           onCreateChart={onCreateChart}
+          onDuplicateChart={onDuplicateChart}
           onDeleteChart={onDeleteChart}
           onRenameChart={onRenameChart}
         />
@@ -620,13 +687,25 @@ export default function ControlPanel({
             Redo
           </button>
         </div>
-        <button
-          className={styles.copyLinkBtn}
-          type="button"
-          onClick={handleCopyLink}
-        >
-          {copied ? 'Copied!' : copyFailed ? 'Copy failed' : 'Copy link'}
-        </button>
+        <div className={styles.linkRow}>
+          <button
+            className={styles.copyLinkBtn}
+            type="button"
+            onClick={handleCopyLink}
+          >
+            {copied ? 'Copied!' : copyFailed ? 'Copy failed' : 'Copy link'}
+          </button>
+          {canShareLink && (
+            <button
+              className={styles.shareLinkBtn}
+              type="button"
+              aria-label="Share link"
+              onClick={handleShareLink}
+            >
+              Share
+            </button>
+          )}
+        </div>
         {customSlotsNotice > 0 && (
           <p className={styles.copyLinkNotice}>
             {customSlotsNotice} custom image{customSlotsNotice !== 1 ? 's' : ''} not included in link.
@@ -649,14 +728,38 @@ export default function ControlPanel({
             ))}
           </div>
         </div>
-        <button
-          className={styles.exportBtn}
-          type="button"
-          disabled={exporting || occupiedCount === 0}
-          onClick={onExport}
-        >
-          {exporting ? 'Exporting…' : 'Export PNG'}
-        </button>
+        <div className={styles.actionRow}>
+          <button
+            className={styles.exportBtn}
+            type="button"
+            disabled={exporting || occupiedCount === 0}
+            onClick={onExport}
+          >
+            {exporting ? 'Exporting…' : 'Export PNG'}
+          </button>
+          {canCopyImage && (
+            <button
+              className={styles.copyImageBtn}
+              type="button"
+              aria-label="Copy image to clipboard"
+              disabled={exporting || occupiedCount === 0}
+              onClick={handleCopyImage}
+            >
+              {imageCopied ? 'Copied!' : imageCopyFailed ? 'Copy failed' : 'Copy image'}
+            </button>
+          )}
+        </div>
+        {canShareImage && (
+          <button
+            className={styles.shareImageBtn}
+            type="button"
+            aria-label="Share image"
+            disabled={exporting || occupiedCount === 0}
+            onClick={handleShareImage}
+          >
+            Share image
+          </button>
+        )}
         <p className={styles.disclaimer}>
           Card data and images provided by Scryfall. Cards © Wizards of the Coast. Not affiliated with or endorsed by Scryfall or Wizards of the Coast.
         </p>

@@ -68,6 +68,12 @@
   margin-bottom: 0;
 }
 
+.pickerActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .pickerAdd {
   width: 20px;
   height: 20px;
@@ -366,6 +372,64 @@
   cursor: default;
 }
 
+/* Export + Copy image share a row; the row collapses to a full-width Export when
+   Copy image is unsupported. Both children stretch equally. */
+.actionRow {
+  display: flex;
+  gap: 6px;
+}
+
+.actionRow .exportBtn {
+  flex: 1;
+  width: auto;
+}
+
+.copyImageBtn {
+  flex: 1;
+  padding: 8px 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.copyImageBtn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.copyImageBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.shareImageBtn {
+  width: 100%;
+  padding: 7px 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.shareImageBtn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.shareImageBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .disclaimer {
   font-size: 10px;
   line-height: 1.5;
@@ -452,6 +516,19 @@
   cursor: default;
 }
 
+/* Copy link + Share (link) share a row; Share only appears where Web Share exists,
+   so on unsupported browsers Copy link keeps its full width. */
+.linkRow {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.linkRow .copyLinkBtn {
+  flex: 1;
+  width: auto;
+}
+
 .copyLinkBtn {
   width: 100%;
   padding: 6px 0;
@@ -465,6 +542,24 @@
 }
 
 .copyLinkBtn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.shareLinkBtn {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.shareLinkBtn:hover {
   border-color: var(--accent);
   color: var(--accent);
 }
