@@ -169,21 +169,31 @@ is the fix — no rewrite required.
 
 ### Export flow (`useExport.ts`)
 
-**Step 1 — Platform-aware pixel-budget preflight**
+**Step 1 — Deterministic geometry + platform-aware pixel-budget preflight**
+
+Export dimensions are derived from chart config alone — **never** from the live
+DOM/viewport — so the same chart exports at the same resolution on every device
+(and mobile is no longer downscaled to its narrow viewport). The pure geometry
+(layout, cover-crop source rect, `fitsAt`, sidebar measure, truncation) lives in
+`src/utils/exportGeometry.ts` and is unit-tested; the hook is only the caller.
 
 ```typescript
 const isIOS =
   /iPhone|iPad|iPod/.test(navigator.userAgent) ||
   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
 
-// Dimensions derived from chart config (not DOM measurements — must be deterministic)
-const sidebarWidth = nameDisplayMode === 'sidebar'
-  ? measured via ctx.measureText() on a scratch canvas after fonts.ready
-  : 0
-const titleHeight = title ? titleFontSize * 1.5 : 0
+// Fixed logical cell width — the whole point of the determinism fix.
+const cellW = EXPORT_CELL_W                 // 180 (src/utils/exportGeometry.ts)
+const cellH = displayMode === 'square' ? cellW : cellW * (3 / 4)
 
-const exportWidth  = (cols * cellW + (cols-1) * gap + 2 * padding + sidebarWidth) * scale
-const exportHeight = (rows * cellH + (rows-1) * gap + 2 * padding + titleHeight)  * scale
+// sidebarWidth: 0 unless nameDisplayMode === 'sidebar', in which case it is the
+//   widest name (via an injected canvas measurer) clamped to [120, 200].
+// titleHeight: title ? titleFontSize * 1.5 + paddingBottom : 0
+// computeExportLayout() returns cellW/cellH/totalGrid*/titleHeight/innerW/innerH,
+//   where innerW = totalGridW + sidebarSection and innerH = totalGridH + titleHeight.
+
+const exportWidth  = (innerW + 2 * padding) * scale
+const exportHeight = (innerH + 2 * padding) * scale
 
 // Desktop: 8,192px per side (conservative for Chrome/Firefox/Edge/Safari 15.4+)
 // iOS: 3,000,000 total pixels (conservative floor for all iOS devices)
@@ -201,12 +211,22 @@ if (isIOS) {
 }
 ```
 
-**Step 2 — Pre-fetch images as blobs**
+**Step 2 — Pre-fetch images as blobs (graceful per-cell degradation)**
 ```
 fetch(artCropUrl, { mode: 'cors' }) → Blob → URL.createObjectURL()
 On 404: re-fetch card by scryfallId → re-derive artCrop → update Slot.imageUris, persist
-If still fails: abort export, show error naming the card. Never produce a partial image.
+If an image still can't be loaded: DO NOT abort. Skip that cell (it renders as the
+  normal empty-cell placeholder) and collect the card name.
+After a successful export, surface any skipped cells via the warning state:
+  "Exported, but couldn't load art for: X, Y." A scale downgrade is folded into the
+  same warning.
+Only a fully empty result (cards present but none loaded) is a hard error.
 ```
+
+The grid's `<img>` tags carry `crossOrigin="anonymous"` so their cached responses
+are CORS-usable and the export's `fetch(mode:'cors')` reuses them, rather than the
+browser caching an opaque (no-cors) response the export can't reuse and then failing
+on a cold-cache fetch.
 
 **Step 3 — Load images**
 ```
@@ -228,10 +248,14 @@ await document.fonts.ready
 // Draw: background, cells (cover-crop drawImage with roundRect clip), title, name display
 ```
 
-Cover-crop math (equivalent to `object-fit: cover`):
+Cover-crop math — `coverCropRect()` in `exportGeometry.ts`, equivalent to
+`object-fit: cover` plus `object-position` (cropX/cropY) and a zoom (cropScale):
 ```
-if srcAspect > dstAspect:  sh=imgH, sw=imgH*dstAspect, sx=(imgW-sw)/2, sy=0
-else:                       sw=imgW, sh=imgW/dstAspect, sx=0, sy=(imgH-sh)/2
+if srcAspect > dstAspect:  sh=imgH, sw=imgH*dstAspect
+else:                       sw=imgW, sh=imgW/dstAspect
+sw /= cropScale; sh /= cropScale            // zoom shrinks the source window
+sx = (imgW - sw) * cropX                     // cropX/cropY = 0.5 → centred (default)
+sy = (imgH - sh) * cropY
 ctx.drawImage(img, sx, sy, sw, sh, cellX, cellY, cellW, cellH)
 ```
 
@@ -248,6 +272,8 @@ canvas.toBlob((blob) => {
     return
   }
   triggerDownload(blob)
+  // Defer the download blob's revoke (~1s) — Safari intermittently aborts a
+  // download whose object URL is revoked synchronously right after a.click().
 }, 'image/png')
 ```
 
