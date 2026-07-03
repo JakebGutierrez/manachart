@@ -307,11 +307,13 @@ export default function ControlPanel({
   const occupiedCount = chart.slots.filter((s) => s != null).length
   const [sortKey, setSortKey] = useState<SortKey>('type')
   const [copied, setCopied] = useState(false)
+  const [copyFailed, setCopyFailed] = useState(false)
   const [customSlotsNotice, setCustomSlotsNotice] = useState(0)
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   function handleCopyLink() {
     if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+    setCopyFailed(false)
     onCopyLink().then((omitted) => {
       setCopied(true)
       setCustomSlotsNotice(omitted)
@@ -320,7 +322,11 @@ export default function ControlPanel({
         setCopied(false)
         setCustomSlotsNotice(0)
       }, delay)
-    }).catch(() => {})
+    }).catch(() => {
+      setCopied(false)
+      setCopyFailed(true)
+      copyTimeoutRef.current = setTimeout(() => setCopyFailed(false), 2000)
+    })
   }
 
   return (
@@ -616,7 +622,7 @@ export default function ControlPanel({
           type="button"
           onClick={handleCopyLink}
         >
-          {copied ? 'Copied!' : 'Copy link'}
+          {copied ? 'Copied!' : copyFailed ? 'Copy failed' : 'Copy link'}
         </button>
         {customSlotsNotice > 0 && (
           <p className={styles.copyLinkNotice}>
