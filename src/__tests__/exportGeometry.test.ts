@@ -13,7 +13,9 @@ import {
   computeCellWidth,
   computeExportLayout,
   fitsAt,
-  resolveExportScale,
+  maxCellForBudget,
+  resolveExportSizing,
+  shouldHardErrorExport,
   coverCropRect,
   measureSidebarWidth,
   truncateToWidth,
@@ -199,18 +201,144 @@ describe('computeExportLayout', () => {
   })
 })
 
-describe('resolveExportScale', () => {
-  it('returns the requested scale when it fits', () => {
-    expect(resolveExportScale(1000, 1000, PAD, 2, false)).toEqual({ scale: 2, downgraded: false })
+describe('maxCellForBudget', () => {
+  it('iOS: largest cell whose 2× export lands on the area budget', () => {
+    // 5×5 landscape, no title/sidebar: solved ≈188.8 (area at that cell ≈ 3.0M @2×)
+    const c = maxCellForBudget({
+      rows: 5,
+      cols: 5,
+      gap: 4,
+      padding: PAD,
+      displayMode: 'landscape',
+      hasTitle: false,
+      scale: 2,
+      isIOS: true,
+    })
+    expect(c).toBeCloseTo(188.8, 0)
+    const l = computeExportLayout({ rows: 5, cols: 5, gap: 4, displayMode: 'landscape', hasTitle: false, cellW: c })
+    expect(fitsAt(l.innerW, l.innerH, PAD, 2, true)).toBe(true) // fits at the solved cell
   })
 
-  it('downgrades to 1× when 2× overflows but 1× fits', () => {
-    // iOS: (1032*2)² ≈ 4.26M > 3M at 2×, 1.065M < 3M at 1×
-    expect(resolveExportScale(1000, 1000, PAD, 2, true)).toEqual({ scale: 1, downgraded: true })
+  it('desktop: per-side ceiling gives far more room than the ideal cell', () => {
+    const c = maxCellForBudget({
+      rows: 5,
+      cols: 5,
+      gap: 4,
+      padding: PAD,
+      displayMode: 'landscape',
+      hasTitle: false,
+      scale: 2,
+      isIOS: false,
+    })
+    expect(c).toBeCloseTo((8192 / 2 - (4 * 4 + 2 * PAD)) / 5, 0) // ≈ 809.6
+  })
+})
+
+describe('resolveExportSizing — ordinary charts stay at 2× on iOS (Task-1 regression)', () => {
+  const OLD_FIXED_180 = { landscape5x5: 1896 } // (5*180+4*4 + 2*16) * 2
+
+  const ordinary: Array<{ label: string; rows: number; cols: number; mode: DisplayMode }> = [
+    { label: '5×5 landscape', rows: 5, cols: 5, mode: 'landscape' },
+    { label: '3×3 landscape', rows: 3, cols: 3, mode: 'landscape' },
+    { label: '5×5 square', rows: 5, cols: 5, mode: 'square' },
+  ]
+
+  it.each(ordinary)('$label exports at 2× on iOS without downgrading', ({ rows, cols, mode }) => {
+    const res = resolveExportSizing({
+      rows,
+      cols,
+      gap: 4,
+      padding: PAD,
+      displayMode: mode,
+      hasTitle: false,
+      requestedScale: 2,
+      isIOS: true,
+    })
+    expect(res).not.toBeNull()
+    expect(res!.scale).toBe(2)
+    expect(res!.downgraded).toBe(false)
+    // cell is budget-capped: at or below the ideal, and still above the useful floor
+    const ideal = computeCellWidth({ rows, cols, gap: 4, displayMode: mode })
+    expect(res!.cellW).toBeLessThanOrEqual(ideal)
+    expect(res!.cellW).toBeGreaterThanOrEqual(MIN_CELL_W)
+    // the resulting 2× export actually fits the iOS budget
+    const l = computeExportLayout({ rows, cols, gap: 4, displayMode: mode, hasTitle: false, cellW: res!.cellW })
+    expect(fitsAt(l.innerW, l.innerH, PAD, 2, true)).toBe(true)
   })
 
-  it('returns null (hard error) when even 1× cannot fit', () => {
-    expect(resolveExportScale(3000, 3000, 0, 2, true)).toBeNull() // 9M > 3M even at 1×
+  it('the 5×5 landscape iOS 2× export is at least as sharp as the old fixed-180 output', () => {
+    const res = resolveExportSizing({
+      rows: 5,
+      cols: 5,
+      gap: 4,
+      padding: PAD,
+      displayMode: 'landscape',
+      hasTitle: false,
+      requestedScale: 2,
+      isIOS: true,
+    })!
+    const l = computeExportLayout({ rows: 5, cols: 5, gap: 4, displayMode: 'landscape', hasTitle: false, cellW: res.cellW })
+    const longEdge = (Math.max(l.innerW, l.innerH) + 2 * PAD) * res.scale
+    expect(longEdge).toBeGreaterThanOrEqual(OLD_FIXED_180.landscape5x5)
+  })
+
+  it('desktop keeps the full ideal cell at 2× (budget cap does not bind)', () => {
+    const res = resolveExportSizing({
+      rows: 5,
+      cols: 5,
+      gap: 4,
+      padding: PAD,
+      displayMode: 'landscape',
+      hasTitle: false,
+      requestedScale: 2,
+      isIOS: false,
+    })!
+    expect(res.scale).toBe(2)
+    expect(res.downgraded).toBe(false)
+    expect(res.cellW).toBeCloseTo(computeCellWidth({ rows: 5, cols: 5, gap: 4, displayMode: 'landscape' }), 5)
+  })
+
+  it('returns null (hard error) only for genuinely impossible configs', () => {
+    // Absurd padding blows the budget even at a MIN cell and 1× scale.
+    expect(
+      resolveExportSizing({
+        rows: 10,
+        cols: 10,
+        gap: 4,
+        padding: 1000,
+        displayMode: 'square',
+        hasTitle: true,
+        sidebarWidth: SIDEBAR_MAX_WIDTH,
+        requestedScale: 2,
+        isIOS: true,
+      }),
+    ).toBeNull()
+  })
+})
+
+describe('shouldHardErrorExport', () => {
+  it('an empty chart (no filled cells) is fine', () => {
+    expect(shouldHardErrorExport(0, 0)).toBe(false)
+  })
+
+  it('all cells failed is always a hard error, regardless of size', () => {
+    expect(shouldHardErrorExport(2, 2)).toBe(true)
+    expect(shouldHardErrorExport(10, 10)).toBe(true)
+  })
+
+  it('a small chart with a partial failure degrades (no hard error)', () => {
+    expect(shouldHardErrorExport(3, 2)).toBe(false) // 2/3 failed but below the threshold
+    expect(shouldHardErrorExport(5, 3)).toBe(false)
+  })
+
+  it('a larger chart with >50% failures hard-errors', () => {
+    expect(shouldHardErrorExport(8, 5)).toBe(true)
+    expect(shouldHardErrorExport(6, 4)).toBe(true)
+  })
+
+  it('exactly half failed is not "systemic" (still degrades)', () => {
+    expect(shouldHardErrorExport(8, 4)).toBe(false)
+    expect(shouldHardErrorExport(6, 3)).toBe(false)
   })
 })
 
@@ -227,31 +355,53 @@ describe('exhaustive budget: 10×10 across every display/title/sidebar variant',
   }
 
   it.each(cases)(
-    '10×10 %s title=%s sidebar=%s fits iOS at 1× and desktop at 2× (never the hard error)',
+    '10×10 %s title=%s sidebar=%s is always exportable (never the hard error) and fits its chosen scale',
     ({ mode, title, sidebar }) => {
-      const l = computeExportLayout({
+      const params = {
         rows: 10,
         cols: 10,
         gap: GAP,
+        padding: PAD,
         displayMode: mode,
         hasTitle: title,
         sidebarWidth: sidebar ? SIDEBAR_MAX_WIDTH : 0,
-      })
+        requestedScale: 2 as const,
+      }
 
-      // iOS: always resolvable (never the task-3 hard error). A 10×10 overflows 2×,
-      // so it takes the graceful 1× downgrade.
-      const ios = resolveExportScale(l.innerW, l.innerH, PAD, 2, true)
+      // iOS: never the hard error. Whatever scale it picks (heavier variants take the
+      // 1× downgrade; lighter ones fit 2× with a budget-capped cell), the result fits
+      // the budget and stays above the useful cell floor.
+      const ios = resolveExportSizing({ ...params, isIOS: true })
       expect(ios).not.toBeNull()
-      expect(ios).toEqual({ scale: 1, downgraded: true })
-      expect(fitsAt(l.innerW, l.innerH, PAD, 1, true)).toBe(true)
+      expect(ios!.cellW).toBeGreaterThanOrEqual(MIN_CELL_W)
+      const iosLayout = computeExportLayout({ ...params, cellW: ios!.cellW })
+      expect(fitsAt(iosLayout.innerW, iosLayout.innerH, PAD, ios!.scale, true)).toBe(true)
 
-      // Desktop: comfortably within 8192 per side at full 2×.
-      expect(resolveExportScale(l.innerW, l.innerH, PAD, 2, false)).toEqual({
-        scale: 2,
-        downgraded: false,
-      })
+      // Desktop: comfortably within 8192 per side at full 2× (no downgrade).
+      const desktop = resolveExportSizing({ ...params, isIOS: false })
+      expect(desktop!.scale).toBe(2)
+      expect(desktop!.downgraded).toBe(false)
+      const deskLayout = computeExportLayout({ ...params, cellW: desktop!.cellW })
+      expect(fitsAt(deskLayout.innerW, deskLayout.innerH, PAD, 2, false)).toBe(true)
     },
   )
+
+  it('the tightest 10×10 (square + title + max sidebar) takes the 1× downgrade on iOS', () => {
+    const res = resolveExportSizing({
+      rows: 10,
+      cols: 10,
+      gap: GAP,
+      padding: PAD,
+      displayMode: 'square',
+      hasTitle: true,
+      sidebarWidth: SIDEBAR_MAX_WIDTH,
+      requestedScale: 2,
+      isIOS: true,
+    })
+    expect(res).not.toBeNull()
+    expect(res!.scale).toBe(1)
+    expect(res!.downgraded).toBe(true)
+  })
 })
 
 describe('measureSidebarWidth', () => {

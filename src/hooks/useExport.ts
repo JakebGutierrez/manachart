@@ -7,7 +7,8 @@ import { fetchCardById } from '@/utils/scryfall'
 import {
   computeExportLayout,
   coverCropRect,
-  resolveExportScale,
+  resolveExportSizing,
+  shouldHardErrorExport,
   measureSidebarWidth,
   truncateToWidth,
   TITLE_FONT_SIZE,
@@ -126,18 +127,20 @@ export function useExport(
       }
 
       // Deterministic geometry: target-resolution cell sizing from chart config
-      // alone (no DOM). computeExportLayout derives the cell width internally.
-      const { cellW, cellH, totalGridW, titleHeight, innerW, innerH } = computeExportLayout({
+      // alone (no DOM), capped by the device budget so the requested scale fits at
+      // the sharpest cell rather than overshooting and downgrading (Task-1 fix).
+      const sizing = resolveExportSizing({
         rows,
         cols,
         gap,
+        padding,
         displayMode: chart.displayMode,
         hasTitle: !!chart.title,
         sidebarWidth,
+        requestedScale: scale,
+        isIOS,
       })
-
-      const resolved = resolveExportScale(innerW, innerH, padding, scale, isIOS)
-      if (!resolved) {
+      if (!sizing) {
         setError(
           isIOS
             ? 'This chart is too large to export on iOS — Safari caps the maximum canvas size. Reduce the grid size (fewer rows or columns) and try again.'
@@ -145,7 +148,17 @@ export function useExport(
         )
         return
       }
-      const { scale: finalScale, downgraded } = resolved
+      const { scale: finalScale, downgraded } = sizing
+
+      const { cellW, cellH, totalGridW, titleHeight, innerW, innerH } = computeExportLayout({
+        rows,
+        cols,
+        gap,
+        displayMode: chart.displayMode,
+        hasTitle: !!chart.title,
+        sidebarWidth,
+        cellW: sizing.cellW,
+      })
 
       const exportW = Math.round((innerW + 2 * padding) * finalScale)
       const exportH = Math.round((innerH + 2 * padding) * finalScale)
@@ -198,15 +211,18 @@ export function useExport(
         }
       }
 
-      // A small number of failed cells degrades gracefully (skip + warn below), but
-      // if more than half of the filled cells failed that signals a systemic problem
-      // (rate-limiting, decode failures) rather than one stale image — hard-error
-      // instead of silently downloading a mostly-empty PNG.
-      if (filledCells.length > 0 && failedCards.length * 2 > filledCells.length) {
+      // Failure handling. Nothing loaded → always a hard error (an empty PNG helps
+      // no one). The >50% "systemic problem" hard error only applies at/above the
+      // cell-count threshold, so a small chart degrades to a usable partial PNG +
+      // warning instead (e.g. a 3-card chart with 2 failures still downloads its 1
+      // loaded card). See shouldHardErrorExport.
+      const totalFilled = filledCells.length
+      const allFailed = totalFilled > 0 && imgBySlot.size === 0
+      if (shouldHardErrorExport(totalFilled, failedCards.length)) {
         setError(
-          imgBySlot.size === 0
+          allFailed
             ? "Export failed — couldn't load any card art. Check your connection and try again."
-            : `Export failed — couldn't load ${failedCards.length} of ${filledCells.length} card images (possible rate-limiting or a connection issue). Try again in a moment.`,
+            : `Export failed — couldn't load ${failedCards.length} of ${totalFilled} card images (possible rate-limiting or a connection issue). Try again in a moment.`,
         )
         return
       }
