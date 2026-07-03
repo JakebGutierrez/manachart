@@ -1,17 +1,28 @@
 import type { DisplayMode } from '@/types/chart'
 
-// Fixed logical cell width for export. Export resolution is derived from chart
-// config alone — never from the live DOM/viewport — so the same chart exports at
-// the same size on every device (and mobile is no longer downscaled).
+export type ExportScale = 1 | 2
+
+// Target-resolution sizing. The cell size is derived from chart config so the
+// exported image's *long edge* lands near BASE_TARGET_LONG_EDGE at base (1×)
+// scale — small grids get big cells, large grids get small cells — then the
+// user's 1×/2× scale multiplies it. This is fully deterministic (no DOM /
+// viewport), so a chart exports identically on every device.
 //
-// Why 180: it keeps a worst-case 10×10 landscape grid within the iOS 3,000,000px²
-// budget at 1× (see fitsAt), while still rendering typical grids sharply — at 2×
-// a cell is 360 device-px, above what Scryfall's art_crop (~626×457) actually
-// resolves, so nothing upscales. It also matches the ~177px cell the old
-// 900px-wide desktop grid produced for a 5×5, so desktop exports are unchanged in
-// resolution; smaller grids on desktop export a touch smaller than before, and all
-// mobile exports get much sharper.
-export const EXPORT_CELL_W = 180
+// Why these values:
+//  - BASE_TARGET_LONG_EDGE = 1400 → at the default 2× scale a typical export is
+//    ~2.8k px on its long edge (well above the old DOM-based ~1864px), so small
+//    charts are sharp: a 1×1 now exports ~2864px wide vs the fixed-180 regression
+//    of ~424px. Desktop never needs the downgrade path (2× stays < 8192).
+//  - It is low enough that the *tightest* large case — a 10×10 SQUARE grid with a
+//    title and a max-width sidebar — still fits the iOS 3,000,000px² budget at 1×
+//    (~2.42M, verified in exportGeometry.test.ts), so ordinary large charts take
+//    the graceful 1× downgrade instead of the hard error.
+//  - MAX_CELL_W caps the cell (only a 1×1 grid reaches it); MIN_CELL_W is a floor
+//    that stays below the cell size the target yields for a 10×10 (~136px), so it
+//    never inflates a large grid past budget — it only guards degenerate configs.
+export const BASE_TARGET_LONG_EDGE = 1400
+export const MIN_CELL_W = 88
+export const MAX_CELL_W = 1400
 
 export const TITLE_FONT_SIZE = 18
 export const TITLE_LINE_HEIGHT = 1.5
@@ -39,6 +50,36 @@ export interface ExportLayout {
   innerH: number
 }
 
+export interface CellSizeParams {
+  rows: number
+  cols: number
+  gap: number
+  displayMode: DisplayMode
+  /** Overrides, mainly for tests; default to the module constants. */
+  targetLongEdge?: number
+  minCell?: number
+  maxCell?: number
+}
+
+// Deterministic cell width for target-resolution sizing. Solves for the cellW that
+// makes the grid's long edge equal `targetLongEdge`, then clamps to [min, max].
+// Both grid dimensions grow linearly with cellW, so the long edge hits the target
+// at the smaller of the two candidate widths (the axis with more cells / the taller
+// aspect reaches the target first).
+export function computeCellWidth(params: CellSizeParams): number {
+  const { rows, cols, gap, displayMode } = params
+  const target = params.targetLongEdge ?? BASE_TARGET_LONG_EDGE
+  const minCell = params.minCell ?? MIN_CELL_W
+  const maxCell = params.maxCell ?? MAX_CELL_W
+  const k = displayMode === 'square' ? 1 : 3 / 4
+
+  const byWidth = (target - (cols - 1) * gap) / cols
+  const byHeight = (target - (rows - 1) * gap) / (rows * k)
+  const raw = Math.min(byWidth, byHeight)
+
+  return Math.max(minCell, Math.min(maxCell, raw))
+}
+
 export interface LayoutParams {
   rows: number
   cols: number
@@ -47,15 +88,19 @@ export interface LayoutParams {
   hasTitle: boolean
   /** Measured sidebar width, or 0/omitted when name display is not 'sidebar'. */
   sidebarWidth?: number
-  /** Logical cell width; defaults to EXPORT_CELL_W. */
+  /** Explicit cell width override (tests); otherwise derived via computeCellWidth. */
   cellW?: number
+  /** Sizing overrides forwarded to computeCellWidth. */
+  targetLongEdge?: number
+  minCell?: number
+  maxCell?: number
 }
 
 // Pure layout geometry: given chart config (plus a measured sidebar width) returns
 // every dimension the canvas draw needs. No DOM, no measurement.
 export function computeExportLayout(params: LayoutParams): ExportLayout {
   const { rows, cols, gap, displayMode, hasTitle } = params
-  const cellW = params.cellW ?? EXPORT_CELL_W
+  const cellW = params.cellW ?? computeCellWidth(params)
   const cellH = displayMode === 'square' ? cellW : cellW * (3 / 4)
 
   const totalGridW = cols * cellW + (cols - 1) * gap
@@ -82,6 +127,25 @@ export function fitsAt(
   const w = (innerW + 2 * padding) * scale
   const h = (innerH + 2 * padding) * scale
   return isIOS ? w * h <= IOS_MAX_AREA : w <= DESKTOP_MAX_SIDE && h <= DESKTOP_MAX_SIDE
+}
+
+// Pick the export scale: the requested scale if it fits, else 1× (a downgrade),
+// else null — the chart is too large to export at all on this platform (Task-3
+// hard error). Pure, so the too-large decision is unit-testable.
+export function resolveExportScale(
+  innerW: number,
+  innerH: number,
+  padding: number,
+  requested: ExportScale,
+  isIOS: boolean,
+): { scale: ExportScale; downgraded: boolean } | null {
+  if (fitsAt(innerW, innerH, padding, requested, isIOS)) {
+    return { scale: requested, downgraded: false }
+  }
+  if (requested !== 1 && fitsAt(innerW, innerH, padding, 1, isIOS)) {
+    return { scale: 1, downgraded: true }
+  }
+  return null
 }
 
 export interface SourceRect {

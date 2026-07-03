@@ -7,7 +7,7 @@ import { fetchCardById } from '@/utils/scryfall'
 import {
   computeExportLayout,
   coverCropRect,
-  fitsAt,
+  resolveExportScale,
   measureSidebarWidth,
   truncateToWidth,
   TITLE_FONT_SIZE,
@@ -15,9 +15,10 @@ import {
   SIDEBAR_PADDING_H,
   SIDEBAR_FONT_SIZE,
   SIDEBAR_LINE_HEIGHT,
+  type ExportScale,
 } from '@/utils/exportGeometry'
 
-export type ExportScale = 1 | 2
+export type { ExportScale }
 
 export interface UseExportResult {
   exporting: boolean
@@ -124,7 +125,8 @@ export function useExport(
         sidebarWidth = measureSidebarWidth(names, (t) => scratchCtx.measureText(t).width)
       }
 
-      // Deterministic geometry from chart config + fixed cell constant (no DOM).
+      // Deterministic geometry: target-resolution cell sizing from chart config
+      // alone (no DOM). computeExportLayout derives the cell width internally.
       const { cellW, cellH, totalGridW, titleHeight, innerW, innerH } = computeExportLayout({
         rows,
         cols,
@@ -134,16 +136,16 @@ export function useExport(
         sidebarWidth,
       })
 
-      let finalScale: ExportScale = scale
-      let downgraded = false
-      if (!fitsAt(innerW, innerH, padding, finalScale, isIOS)) {
-        finalScale = 1
-        if (!fitsAt(innerW, innerH, padding, 1, isIOS)) {
-          setError('Grid is too large to export. Reduce grid size or cell dimensions.')
-          return
-        }
-        downgraded = true
+      const resolved = resolveExportScale(innerW, innerH, padding, scale, isIOS)
+      if (!resolved) {
+        setError(
+          isIOS
+            ? 'This chart is too large to export on iOS — Safari caps the maximum canvas size. Reduce the grid size (fewer rows or columns) and try again.'
+            : 'This chart is too large to export on this device. Reduce the grid size (fewer rows or columns) and try again.',
+        )
+        return
       }
+      const { scale: finalScale, downgraded } = resolved
 
       const exportW = Math.round((innerW + 2 * padding) * finalScale)
       const exportH = Math.round((innerH + 2 * padding) * finalScale)
@@ -196,9 +198,16 @@ export function useExport(
         }
       }
 
-      // A genuinely empty export (cards present but none could load) is a hard error.
-      if (filledCells.length > 0 && imgBySlot.size === 0) {
-        setError("Export failed — couldn't load any card art. Check your connection and try again.")
+      // A small number of failed cells degrades gracefully (skip + warn below), but
+      // if more than half of the filled cells failed that signals a systemic problem
+      // (rate-limiting, decode failures) rather than one stale image — hard-error
+      // instead of silently downloading a mostly-empty PNG.
+      if (filledCells.length > 0 && failedCards.length * 2 > filledCells.length) {
+        setError(
+          imgBySlot.size === 0
+            ? "Export failed — couldn't load any card art. Check your connection and try again."
+            : `Export failed — couldn't load ${failedCards.length} of ${filledCells.length} card images (possible rate-limiting or a connection issue). Try again in a moment.`,
+        )
         return
       }
 
@@ -367,7 +376,13 @@ export function useExport(
       // Surface any per-cell failures (and/or the scale downgrade) as a warning —
       // the export still succeeded.
       const warnings: string[] = []
-      if (downgraded) warnings.push('Export downgraded to 1× — grid is too large for 2×.')
+      if (downgraded) {
+        warnings.push(
+          isIOS
+            ? 'Exported at 1× — 2× exceeds this device’s canvas limit.'
+            : 'Exported at 1× — 2× exceeds the maximum canvas size.',
+        )
+      }
       if (failedCards.length > 0) {
         warnings.push(`Exported, but couldn't load art for: ${failedCards.join(', ')}.`)
       }
