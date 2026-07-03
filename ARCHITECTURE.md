@@ -178,6 +178,12 @@ DOM/viewport — so the same chart exports at the same resolution on every devic
 measure, truncation) lives in `src/utils/exportGeometry.ts` and is unit-tested;
 the hook is only the caller.
 
+**Determinism caveat:** sizing is config-deterministic for every chart *except*
+`nameDisplayMode === 'sidebar'`. Sidebar width is measured from canvas text metrics
+(`ctx.measureText` on card names, in the hook), which vary by a few pixels across
+browsers/platforms and feed into `innerW` — so a sidebar chart's exact export size
+can differ slightly between devices. All non-sidebar charts are fully deterministic.
+
 **Target-resolution cell sizing, capped by the device budget.** Two deterministic
 stages (config only, no DOM):
 
@@ -205,6 +211,18 @@ const ideal = clamp(Math.min(byWidth, byHeight), MIN_CELL_W, MAX_CELL_W)
 sidebar, title, padding). Desktop is a per-side ceiling (linear solve); iOS is a
 total-area cap (positive root of a quadratic).
 
+**Budgets are checked on the ROUNDED, allocated pixel count, not the float layout.**
+The canvas allocates `w = round((innerW+2·padding)·scale)` and
+`h = round((innerH+2·padding)·scale)` — each side rounded *independently*, which can
+push the real area above a cap that the float value cleared. So a single helper,
+`exportPixelDims`, produces those integers and is used by **both** `fitsAt`
+(preflight) and the `canvas.width/height` allocation — they can never disagree.
+`maxCellForBudget` accounts for the rounding up front: because `round(x) ≤ x + 0.5`,
+it bounds `(Ws + 0.5)(Hs + 0.5) ≤ budget` (Ws/Hs the scaled sides), which guarantees
+`round(Ws)·round(Hs) ≤ budget`. Without this, a 3×3 landscape at iOS 2× passed the
+float check but allocated 1987×1510 = 3,000,370 px, over the 3,000,000 cap; it now
+sizes to 1986×1510 = 2,998,860, still at 2×.
+
 The budget cap is what keeps quality high **per platform**:
 
 - **Desktop** (8192²-per-side) has huge headroom, so the cap almost never binds and
@@ -220,8 +238,9 @@ The budget cap is what keeps quality high **per platform**:
   (e.g. absurd padding); every ordinary 10×10 still exports.
 
 ```typescript
-const exportWidth  = (innerW + 2 * padding) * scale   // scale from resolveExportSizing
-const exportHeight = (innerH + 2 * padding) * scale
+// exportPixelDims() — the exact integers allocated, shared with the preflight:
+const exportWidth  = Math.round((innerW + 2 * padding) * scale) // scale from resolveExportSizing
+const exportHeight = Math.round((innerH + 2 * padding) * scale)
 ```
 
 **Step 2 — Pre-fetch images as blobs (graceful per-cell degradation)**
