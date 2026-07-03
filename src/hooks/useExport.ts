@@ -7,6 +7,7 @@ import { fetchCardById } from '@/utils/scryfall'
 import {
   computeExportLayout,
   coverCropRect,
+  exportPixelDims,
   resolveExportSizing,
   shouldHardErrorExport,
   measureSidebarWidth,
@@ -111,7 +112,10 @@ export function useExport(
 
       const cellMap = generateCellMap(rows, cols, chart.heroConfig)
 
-      // Sidebar width measured before layout so innerW is accurate.
+      // Sidebar width measured before layout so innerW is accurate. NOTE: this
+      // canvas text measurement is the one part of sizing that is not purely
+      // config-derived — metrics vary slightly by browser, so sidebar-mode exports
+      // can differ by a few px across platforms (see exportGeometry header).
       let sidebarWidth = 0
       if (chart.nameDisplayMode === 'sidebar') {
         const names = cellMap
@@ -160,8 +164,9 @@ export function useExport(
         cellW: sizing.cellW,
       })
 
-      const exportW = Math.round((innerW + 2 * padding) * finalScale)
-      const exportH = Math.round((innerH + 2 * padding) * finalScale)
+      // Same rounded dimensions the budget preflight checked (exportPixelDims), so a
+      // size that passed resolveExportSizing is guaranteed to fit after allocation.
+      const { w: exportW, h: exportH } = exportPixelDims(innerW, innerH, padding, finalScale)
 
       // Pre-fetch blobs with 404 recovery. A single unrecoverable image must not
       // abort the whole export — skip the cell (it renders as an empty placeholder)

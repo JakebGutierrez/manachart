@@ -3,8 +3,11 @@ import type { DisplayMode } from '@/types/chart'
 export type ExportScale = 1 | 2
 
 // Target-resolution sizing, capped by the device pixel budget. Two stages, both
-// fully deterministic (config only, no DOM), so a chart exports identically on
-// every device of a given platform:
+// pure functions of chart config (no DOM). This is deterministic across devices —
+// EXCEPT for sidebar-mode charts: the sidebar width is measured from canvas text
+// metrics (in the hook) and fed in here, and those metrics can differ by a few
+// pixels across browsers/platforms, so a sidebar chart's size can vary slightly.
+// Every other chart exports identically on every device of a given platform:
 //
 //  1. Ideal cell (computeCellWidth): solve the cell so the grid's long edge lands
 //     near BASE_TARGET_LONG_EDGE, clamped to [MIN_CELL_W, MAX_CELL_W]. Small grids
@@ -123,7 +126,25 @@ export function computeExportLayout(params: LayoutParams): ExportLayout {
   return { cellW, cellH, totalGridW, totalGridH, titleHeight, sidebarSection, innerW, innerH }
 }
 
-// Whether the export fits the platform pixel budget at the given scale.
+// The exact integer canvas dimensions the export allocates. This is the single
+// source of truth — both fitsAt (preflight) and useExport (allocation) go through
+// it, so they can never disagree about the real pixel count. Each side is rounded
+// independently, exactly as canvas.width/height require.
+export function exportPixelDims(
+  innerW: number,
+  innerH: number,
+  padding: number,
+  scale: number,
+): { w: number; h: number } {
+  return {
+    w: Math.round((innerW + 2 * padding) * scale),
+    h: Math.round((innerH + 2 * padding) * scale),
+  }
+}
+
+// Whether the export fits the platform pixel budget at the given scale — checked on
+// the ROUNDED dimensions actually allocated, not the float layout, so a size that
+// passes preflight is guaranteed to fit after allocation.
 export function fitsAt(
   innerW: number,
   innerH: number,
@@ -131,8 +152,7 @@ export function fitsAt(
   scale: number,
   isIOS: boolean,
 ): boolean {
-  const w = (innerW + 2 * padding) * scale
-  const h = (innerH + 2 * padding) * scale
+  const { w, h } = exportPixelDims(innerW, innerH, padding, scale)
   return isIOS ? w * h <= IOS_MAX_AREA : w <= DESKTOP_MAX_SIDE && h <= DESKTOP_MAX_SIDE
 }
 
@@ -151,14 +171,17 @@ export interface SizingParams {
   maxCell?: number
 }
 
-// Largest cell width for which the export fits the platform budget at `scale`.
-// Inverts the budget: the export inner box is
-//   W(cell) = cols*cell + Cw,   H(cell) = rows*k*cell + Ch
+// Largest cell width for which the export fits the platform budget at `scale`,
+// measured on the ROUNDED dimensions that are actually allocated (see fitsAt).
+// The scaled sides are affine in cell:
+//   Ws(cell) = scale*(cols*cell + Cw),   Hs(cell) = scale*(rows*k*cell + Ch)
 // (Cw/Ch collect the gaps, sidebar, title and padding that don't scale with cell).
-// Desktop is a per-side ceiling → linear solve; iOS is a total-area cap → the
-// positive root of a quadratic. Can return a value below MIN (or negative) when
-// the fixed overheads alone already blow the budget — the caller treats that as
-// "doesn't fit at this scale".
+// Since Math.round(x) <= x + 0.5, bounding (Ws + 0.5)(Hs + 0.5) <= budget guarantees
+// round(Ws)*round(Hs) <= budget — i.e. the rounded allocation is safe even though we
+// solve in floats. Desktop is a per-side ceiling → linear solve; iOS is a total-area
+// cap → the positive root of a quadratic. Can return a value below MIN (or negative)
+// when the fixed overheads alone blow the budget — the caller treats that as "doesn't
+// fit at this scale".
 export function maxCellForBudget(
   params: Omit<SizingParams, 'requestedScale'> & { scale: number },
 ): number {
@@ -171,22 +194,24 @@ export function maxCellForBudget(
   const cw = (cols - 1) * gap + sidebarSection + 2 * padding
   const ch = (rows - 1) * gap + titleHeight + 2 * padding
 
-  // Shave a negligible epsilon so a result sitting exactly on the budget boundary
-  // stays strictly inside it under floating-point rounding (fitsAt uses <=).
-  const SHRINK = 1 - 1e-9
+  // Scaled affine sides plus the +0.5 worst-case rounding slack per side.
+  const pw = scale * cols
+  const qw = scale * cw + 0.5
+  const ph = scale * rows * k
+  const qh = scale * ch + 0.5
 
   if (isIOS) {
-    const budget = IOS_MAX_AREA / (scale * scale) // (W)(H) <= area / scale²
-    const a = cols * rows * k
-    const b = cols * ch + rows * k * cw
-    const c = cw * ch - budget
+    // (pw*cell + qw)(ph*cell + qh) <= IOS_MAX_AREA
+    const a = pw * ph
+    const b = pw * qh + ph * qw
+    const c = qw * qh - IOS_MAX_AREA
     const disc = b * b - 4 * a * c
     if (disc < 0) return 0 // overhead alone exceeds the budget
-    return ((-b + Math.sqrt(disc)) / (2 * a)) * SHRINK
+    return (-b + Math.sqrt(disc)) / (2 * a)
   }
 
-  const sideBudget = DESKTOP_MAX_SIDE / scale // each side <= 8192 / scale
-  return Math.min((sideBudget - cw) / cols, (sideBudget - ch) / (rows * k)) * SHRINK
+  // Per-side: pw*cell + qw <= 8192 AND ph*cell + qh <= 8192.
+  return Math.min((DESKTOP_MAX_SIDE - qw) / pw, (DESKTOP_MAX_SIDE - qh) / ph)
 }
 
 // Resolve the export cell width AND scale together: keep the requested scale and

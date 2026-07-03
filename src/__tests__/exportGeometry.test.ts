@@ -10,8 +10,11 @@ import {
   SIDEBAR_GAP,
   SIDEBAR_MIN_WIDTH,
   SIDEBAR_MAX_WIDTH,
+  IOS_MAX_AREA,
+  DESKTOP_MAX_SIDE,
   computeCellWidth,
   computeExportLayout,
+  exportPixelDims,
   fitsAt,
   maxCellForBudget,
   resolveExportSizing,
@@ -22,6 +25,17 @@ import {
 } from '@/utils/exportGeometry'
 
 const TITLE_H = TITLE_FONT_SIZE * TITLE_LINE_HEIGHT + TITLE_PADDING_BOTTOM // 39
+
+// Rounded pixel area of the export at a given cell — the count actually allocated.
+function allocatedArea(
+  cfg: { rows: number; cols: number; gap: number; displayMode: DisplayMode; hasTitle?: boolean; sidebarWidth?: number },
+  cellW: number,
+  scale: number,
+): number {
+  const l = computeExportLayout({ hasTitle: false, ...cfg, cellW })
+  const { w, h } = exportPixelDims(l.innerW, l.innerH, PAD, scale)
+  return w * h
+}
 const PAD = 16
 
 describe('coverCropRect', () => {
@@ -201,36 +215,44 @@ describe('computeExportLayout', () => {
   })
 })
 
-describe('maxCellForBudget', () => {
-  it('iOS: largest cell whose 2× export lands on the area budget', () => {
-    // 5×5 landscape, no title/sidebar: solved ≈188.8 (area at that cell ≈ 3.0M @2×)
-    const c = maxCellForBudget({
-      rows: 5,
-      cols: 5,
-      gap: 4,
-      padding: PAD,
-      displayMode: 'landscape',
-      hasTitle: false,
-      scale: 2,
-      isIOS: true,
-    })
-    expect(c).toBeCloseTo(188.8, 0)
-    const l = computeExportLayout({ rows: 5, cols: 5, gap: 4, displayMode: 'landscape', hasTitle: false, cellW: c })
-    expect(fitsAt(l.innerW, l.innerH, PAD, 2, true)).toBe(true) // fits at the solved cell
+describe('maxCellForBudget (checked on rounded/allocated pixels)', () => {
+  const cfg5x5 = { rows: 5, cols: 5, gap: 4, displayMode: 'landscape' as const }
+
+  it('iOS: the returned cell fits the ROUNDED area budget, and a larger cell does not', () => {
+    const c = maxCellForBudget({ ...cfg5x5, padding: PAD, hasTitle: false, scale: 2, isIOS: true })
+    // the actually-allocated pixel count is within budget at the returned cell…
+    expect(allocatedArea(cfg5x5, c, 2)).toBeLessThanOrEqual(IOS_MAX_AREA)
+    // …and it is near-maximal: nudging the cell up overflows the rounded budget.
+    expect(allocatedArea(cfg5x5, c + 2, 2)).toBeGreaterThan(IOS_MAX_AREA)
   })
 
-  it('desktop: per-side ceiling gives far more room than the ideal cell', () => {
-    const c = maxCellForBudget({
-      rows: 5,
-      cols: 5,
+  it('desktop: the returned cell keeps each ROUNDED side within 8192', () => {
+    const c = maxCellForBudget({ ...cfg5x5, padding: PAD, hasTitle: false, scale: 2, isIOS: false })
+    const l = computeExportLayout({ ...cfg5x5, hasTitle: false, cellW: c })
+    const { w, h } = exportPixelDims(l.innerW, l.innerH, PAD, 2)
+    expect(w).toBeLessThanOrEqual(DESKTOP_MAX_SIDE)
+    expect(h).toBeLessThanOrEqual(DESKTOP_MAX_SIDE)
+    // and it is the binding (width) side, near the ceiling
+    expect(w).toBeGreaterThan(DESKTOP_MAX_SIDE - 5)
+  })
+})
+
+describe('rounding-boundary regression (per-side round must not exceed the budget)', () => {
+  it('3×3 landscape iOS 2×: the ROUNDED allocation stays within the iOS budget', () => {
+    // The reported bug: a float fitsAt passed while round(w)*round(h) = 3,000,370 > cap.
+    const res = resolveExportSizing({
+      rows: 3,
+      cols: 3,
       gap: 4,
       padding: PAD,
       displayMode: 'landscape',
       hasTitle: false,
-      scale: 2,
-      isIOS: false,
-    })
-    expect(c).toBeCloseTo((8192 / 2 - (4 * 4 + 2 * PAD)) / 5, 0) // ≈ 809.6
+      requestedScale: 2,
+      isIOS: true,
+    })!
+    expect(res.scale).toBe(2) // still exports at 2× (just a hair smaller cell)
+    const area = allocatedArea({ rows: 3, cols: 3, gap: 4, displayMode: 'landscape' }, res.cellW, res.scale)
+    expect(area).toBeLessThanOrEqual(IOS_MAX_AREA)
   })
 })
 
