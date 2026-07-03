@@ -282,8 +282,15 @@ export function useExport(
         // Explicitly load the selected font before drawing. document.fonts.ready
         // is not sufficient when no DOM element has rendered the font yet —
         // canvas uses the FontFace API independently and requires an explicit load.
+        // A font-load failure must never abort the whole export: FontFaceSet.load
+        // rejects on a network/parse error, so swallow it and let the draw fall
+        // back to whatever the browser matches (default font at worst).
         if (chart.titleFont) {
-          await document.fonts.load(`600 ${TITLE_FONT_SIZE}px "${chart.titleFont}"`)
+          try {
+            await document.fonts.load(`600 ${TITLE_FONT_SIZE}px "${chart.titleFont}"`)
+          } catch {
+            // fall through and draw the title in the fallback font
+          }
         }
         ctx.save()
         const titleFontFamily = chart.titleFont ? `"${chart.titleFont}"` : BODY_FONT

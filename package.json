@@ -14,6 +14,11 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@fontsource/cinzel": "^5.2.8",
+    "@fontsource/comic-neue": "^5.2.7",
+    "@fontsource/cormorant-garamond": "^5.2.11",
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/uncial-antiqua": "^5.2.7",
     "lz-string": "^1.5.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
