@@ -178,43 +178,50 @@ DOM/viewport — so the same chart exports at the same resolution on every devic
 measure, truncation) lives in `src/utils/exportGeometry.ts` and is unit-tested;
 the hook is only the caller.
 
-**Target-resolution cell sizing.** Rather than a fixed cell width (which made small
-charts tiny and large charts overflow), the cell width is *solved* so the grid's
-long edge lands near a base target, then clamped:
+**Target-resolution cell sizing, capped by the device budget.** Two deterministic
+stages (config only, no DOM):
 
 ```typescript
-// computeCellWidth(): solve cellW so the grid long edge ≈ BASE_TARGET_LONG_EDGE,
-// then clamp to [MIN_CELL_W, MAX_CELL_W]. Small grids get big cells (a 1×1 hits the
-// target); large grids get small cells. Fully deterministic — no DOM.
+// Stage 1 — computeCellWidth(): the IDEAL cell. Solve cellW so the grid long edge ≈
+// BASE_TARGET_LONG_EDGE, clamped to [MIN_CELL_W, MAX_CELL_W]. Small grids get big
+// cells (a 1×1 hits the target); large grids get small cells.
 const k = displayMode === 'square' ? 1 : 3 / 4
 const byWidth  = (BASE_TARGET_LONG_EDGE - (cols - 1) * gap) / cols
 const byHeight = (BASE_TARGET_LONG_EDGE - (rows - 1) * gap) / (rows * k)
-const cellW = clamp(Math.min(byWidth, byHeight), MIN_CELL_W, MAX_CELL_W)
-const cellH = displayMode === 'square' ? cellW : cellW * (3 / 4)
+const ideal = clamp(Math.min(byWidth, byHeight), MIN_CELL_W, MAX_CELL_W)
+
+// Stage 2 — resolveExportSizing(): cap the cell so the REQUESTED scale fits the
+// platform budget, and only drop the scale when even MIN_CELL_W can't fit.
+//   maxFit = maxCellForBudget(cfg, requestedScale)  // largest cell that fits budget
+//   if (maxFit >= MIN_CELL_W) → { cellW: min(ideal, maxFit), scale: requested }
+//   else if requested === 2 and it fits at 1× → { cellW: min(ideal, maxAt1x), scale: 1, downgraded }
+//   else → null (Task-3 hard error)
 
 // BASE_TARGET_LONG_EDGE = 1400, MIN_CELL_W = 88, MAX_CELL_W = 1400.
-// → a 1×1 exports ~2864px on its long edge at 2× (vs a fixed-180's ~424px), and a
-//   10×10 lands at ~136px cells, which stays inside the iOS budget at 1×.
-
-// computeExportLayout() returns cellW/cellH/totalGrid*/titleHeight/innerW/innerH,
-//   innerW = totalGridW + sidebarSection, innerH = totalGridH + titleHeight.
-//   sidebarWidth: widest name via an injected canvas measurer, clamped [120,200].
-//   titleHeight: title ? titleFontSize * 1.5 + paddingBottom : 0.
-
-const exportWidth  = (innerW + 2 * padding) * scale   // scale is the user's 1×/2×
-const exportHeight = (innerH + 2 * padding) * scale
 ```
 
-**Scale preflight** — `resolveExportScale(innerW, innerH, padding, requested, isIOS)`:
+`maxCellForBudget` inverts the pixel budget for the cell: the export inner box is
+`W(cell) = cols·cell + Cw`, `H(cell) = rows·k·cell + Ch` (Cw/Ch collect gaps,
+sidebar, title, padding). Desktop is a per-side ceiling (linear solve); iOS is a
+total-area cap (positive root of a quadratic).
+
+The budget cap is what keeps quality high **per platform**:
+
+- **Desktop** (8192²-per-side) has huge headroom, so the cap almost never binds and
+  desktop keeps the full ideal cell — e.g. a 5×5 exports ~2864px long edge at 2×, a
+  1×1 ~2864px (vs the old fixed-180's ~424px).
+- **iOS** (3,000,000px²) caps the cell so the requested 2× lands just under budget
+  instead of overshooting and downgrading: an ordinary 5×5 landscape exports at 2×
+  with a ~189px cell → ~1984px long edge (sharper than the old ~1896px, and *no*
+  downgrade). Only genuinely large charts — a 10×10 square, or a 10×10 with a
+  sidebar — can't fit even a MIN cell at 2× and take the graceful 1× downgrade,
+  surfaced as a soft "Exported at 1× — 2× exceeds this device's canvas limit".
+- `null` (hard error) is reserved for configs that can't fit even a MIN cell at 1×
+  (e.g. absurd padding); every ordinary 10×10 still exports.
 
 ```typescript
-// Desktop: 8,192px per side (conservative for Chrome/Firefox/Edge/Safari 15.4+)
-// iOS: 3,000,000 total pixels (conservative floor for all iOS devices)
-// - requested scale (2×) if it fits → use it (desktop always does here)
-// - else 1× if that fits → downgrade (iOS takes this for larger/square grids;
-//     surfaced as a soft "Exported at 1× — 2× exceeds this device's canvas limit")
-// - else null → hard error (Task-3 message). With target sizing this is reserved
-//     for genuinely extreme configs; every 10×10 variant still fits at 1×.
+const exportWidth  = (innerW + 2 * padding) * scale   // scale from resolveExportSizing
+const exportHeight = (innerH + 2 * padding) * scale
 ```
 
 **Step 2 — Pre-fetch images as blobs (graceful per-cell degradation)**
@@ -226,9 +233,11 @@ If an image still can't be loaded: DO NOT abort. Skip that cell (it renders as t
 After a successful export, surface any skipped cells via the warning state:
   "Exported, but couldn't load art for: X, Y." A scale downgrade is folded into the
   same warning.
-If MORE THAN HALF the filled cells fail, that's a systemic problem (rate-limiting,
-  decode failures), not one stale image → hard error instead of a mostly-empty PNG.
-A fully empty result (cards present but none loaded) is likewise a hard error.
+shouldHardErrorExport() decides whether to abort: a fully empty result (cards
+  present but none loaded) is ALWAYS a hard error; the ">50% failed = systemic
+  problem" rule only applies at/above SYSTEMIC_FAILURE_MIN_CELLS (6) filled cells,
+  so a small chart (e.g. 3 filled, 2 failed) still downloads a usable partial PNG
+  with the warning rather than erroring on a mostly-usable export.
 ```
 
 **CORS handling.** *Every* `<img>` that loads a Scryfall art URL carries
