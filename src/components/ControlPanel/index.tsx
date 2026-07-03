@@ -232,6 +232,9 @@ function CropEditor({
           className={styles.cropPreviewImg}
           src={slot.kind === 'scryfall' ? slot.imageUris[slot.selectedFaceIndex].artCrop : slot.localImageDataUrl}
           alt={slot.kind === 'scryfall' ? slot.cardName : slot.label}
+          // CORS-consistent with the export fetch so all art load paths share one
+          // cache entry (harmless on custom data: URLs). See Grid/index.tsx.
+          crossOrigin="anonymous"
           draggable={false}
           style={{
             objectPosition: `${slot.cropX * 100}% ${slot.cropY * 100}%`,

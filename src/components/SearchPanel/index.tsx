@@ -106,6 +106,8 @@ export default function SearchPanel({ chart, onSlotFill }: Props) {
                   src={result.imageUris[result.selectedFaceIndex].artCrop}
                   alt=""
                   loading="lazy"
+                  // CORS-consistent so this load path can't poison the shared cache.
+                  crossOrigin="anonymous"
                 />
                 <span className={styles.name}>{result.cardName}</span>
               </button>

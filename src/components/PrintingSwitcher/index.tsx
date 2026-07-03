@@ -103,6 +103,8 @@ export default function PrintingSwitcher({ currentSlot, onSelect, onClose }: Pro
                     className={styles.thumb}
                     src={printing.slot.imageUris[0].artCrop}
                     alt={printing.setName}
+                    // CORS-consistent so this load path can't poison the shared cache.
+                    crossOrigin="anonymous"
                   />
                   <div className={styles.info}>
                     <span className={styles.setName}>{printing.setName}</span>
