@@ -1,9 +1,21 @@
-import { useState, useRef, useCallback, type RefObject } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import type { Chart, ScryfallSlot } from '@/types/chart'
 import { getSlot } from '@/utils/chart'
 import { generateCellMap } from '@/utils/cellMap'
 import { fetchAsBlob, loadImage, FetchError } from '@/utils/imageBlob'
 import { fetchCardById } from '@/utils/scryfall'
+import {
+  computeExportLayout,
+  coverCropRect,
+  fitsAt,
+  measureSidebarWidth,
+  truncateToWidth,
+  TITLE_FONT_SIZE,
+  SIDEBAR_GAP,
+  SIDEBAR_PADDING_H,
+  SIDEBAR_FONT_SIZE,
+  SIDEBAR_LINE_HEIGHT,
+} from '@/utils/exportGeometry'
 
 export type ExportScale = 1 | 2
 
@@ -18,29 +30,12 @@ export interface UseExportResult {
   triggerExport: () => void
 }
 
-const TITLE_FONT_SIZE = 18
-const TITLE_LINE_HEIGHT = 1.5
-const TITLE_PADDING_BOTTOM = 12
-const SIDEBAR_GAP = 16
-const SIDEBAR_MIN_WIDTH = 120
-const SIDEBAR_MAX_WIDTH = 200
-const SIDEBAR_PADDING_H = 10
-const SIDEBAR_FONT_SIZE = 12
-const SIDEBAR_LINE_HEIGHT = 1.5
 const OVERLAY_FONT_SIZE = 11
 const TEXT_PRIMARY = '#e8e8e8'
 const OVERLAY_BG = 'rgba(0,0,0,0.65)'
 const BG_CELL = '#1a1c21'
 const BORDER_CELL = '#2a2c32'
 const BODY_FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-
-function measureSidebarWidth(names: string[]): number {
-  const scratch = document.createElement('canvas')
-  const ctx = scratch.getContext('2d')!
-  ctx.font = `${SIDEBAR_FONT_SIZE}px ${BODY_FONT}`
-  const maxText = names.reduce((max, n) => Math.max(max, ctx.measureText(n).width), 0)
-  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, maxText + SIDEBAR_PADDING_H * 2))
-}
 
 function fillTextTruncated(
   ctx: CanvasRenderingContext2D,
@@ -49,15 +44,7 @@ function fillTextTruncated(
   y: number,
   maxWidth: number,
 ) {
-  if (ctx.measureText(text).width <= maxWidth) {
-    ctx.fillText(text, x, y)
-    return
-  }
-  let t = text
-  while (t.length > 0 && ctx.measureText(t + '…').width > maxWidth) {
-    t = t.slice(0, -1)
-  }
-  ctx.fillText(t + '…', x, y)
+  ctx.fillText(truncateToWidth(text, maxWidth, (t) => ctx.measureText(t).width), x, y)
 }
 
 function drawCoverCrop(
@@ -71,27 +58,21 @@ function drawCoverCrop(
   cropY = 0.5,
   cropScale = 1.0,
 ) {
-  const srcAspect = img.naturalWidth / img.naturalHeight
-  const dstAspect = dw / dh
-  let sw: number, sh: number
-  if (srcAspect > dstAspect) {
-    sh = img.naturalHeight
-    sw = img.naturalHeight * dstAspect
-  } else {
-    sw = img.naturalWidth
-    sh = img.naturalWidth / dstAspect
-  }
-  sw /= cropScale
-  sh /= cropScale
-  const sx = (img.naturalWidth - sw) * cropX
-  const sy = (img.naturalHeight - sh) * cropY
+  const { sx, sy, sw, sh } = coverCropRect(
+    img.naturalWidth,
+    img.naturalHeight,
+    dw,
+    dh,
+    cropX,
+    cropY,
+    cropScale,
+  )
   ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh)
 }
 
 export function useExport(
   chart: Chart,
   onSlotImageUpdate: (slotIndex: number, imageUris: ScryfallSlot['imageUris']) => void,
-  gridRef: RefObject<HTMLDivElement | null>,
 ): UseExportResult {
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -106,7 +87,7 @@ export function useExport(
   const dismissWarning = useCallback(() => setWarning(null), [])
 
   const triggerExport = useCallback(async () => {
-    if (exportingRef.current || !gridRef.current) return
+    if (exportingRef.current) return
     exportingRef.current = true
     setExporting(true)
     setError(null)
@@ -117,8 +98,6 @@ export function useExport(
     try {
       await document.fonts.ready
 
-      if (!gridRef.current) return
-
       const isIOS =
         /iPhone|iPad|iPod/.test(navigator.userAgent) ||
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
@@ -128,22 +107,10 @@ export function useExport(
       const gap = chart.cellGap
       const padding = chart.padding
 
-      // Cell dims from DOM — matches what the user sees
-      const gridClientWidth = gridRef.current.getBoundingClientRect().width
-      const cellW = (gridClientWidth - gap * (cols - 1)) / cols
-      const cellH = chart.displayMode === 'square' ? cellW : cellW * (3 / 4)
-
-      const totalGridW = cols * cellW + (cols - 1) * gap
-      const totalGridH = rows * cellH + (rows - 1) * gap
-      const titleHeight = chart.title
-        ? TITLE_FONT_SIZE * TITLE_LINE_HEIGHT + TITLE_PADDING_BOTTOM
-        : 0
-
       const cellMap = generateCellMap(rows, cols, chart.heroConfig)
 
-      // Sidebar width measured before preflight so innerW is accurate
+      // Sidebar width measured before layout so innerW is accurate.
       let sidebarWidth = 0
-      let sidebarSection = 0
       if (chart.nameDisplayMode === 'sidebar') {
         const names = cellMap
           .filter((c) => c.kind !== 'covered')
@@ -151,39 +118,46 @@ export function useExport(
             const s = getSlot(chart, c.slotIndex)
             return s ? [s.kind === 'scryfall' ? s.cardName : s.label] : []
           })
-        sidebarWidth = measureSidebarWidth(names)
-        sidebarSection = SIDEBAR_GAP + sidebarWidth
+        const scratch = document.createElement('canvas')
+        const scratchCtx = scratch.getContext('2d')!
+        scratchCtx.font = `${SIDEBAR_FONT_SIZE}px ${BODY_FONT}`
+        sidebarWidth = measureSidebarWidth(names, (t) => scratchCtx.measureText(t).width)
       }
 
-      const innerW = totalGridW + sidebarSection
-      const innerH = totalGridH + titleHeight
-
-      const fitsAt = (s: number) => {
-        const w = (innerW + 2 * padding) * s
-        const h = (innerH + 2 * padding) * s
-        return isIOS ? w * h <= 3_000_000 : w <= 8192 && h <= 8192
-      }
+      // Deterministic geometry from chart config + fixed cell constant (no DOM).
+      const { cellW, cellH, totalGridW, titleHeight, innerW, innerH } = computeExportLayout({
+        rows,
+        cols,
+        gap,
+        displayMode: chart.displayMode,
+        hasTitle: !!chart.title,
+        sidebarWidth,
+      })
 
       let finalScale: ExportScale = scale
-      if (!fitsAt(finalScale)) {
+      let downgraded = false
+      if (!fitsAt(innerW, innerH, padding, finalScale, isIOS)) {
         finalScale = 1
-        if (!fitsAt(1)) {
+        if (!fitsAt(innerW, innerH, padding, 1, isIOS)) {
           setError('Grid is too large to export. Reduce grid size or cell dimensions.')
           return
         }
-        setWarning('Export downgraded to 1× — grid is too large for 2×.')
+        downgraded = true
       }
 
       const exportW = Math.round((innerW + 2 * padding) * finalScale)
       const exportH = Math.round((innerH + 2 * padding) * finalScale)
 
-      // Pre-fetch blobs with 404 recovery
+      // Pre-fetch blobs with 404 recovery. A single unrecoverable image must not
+      // abort the whole export — skip the cell (it renders as an empty placeholder)
+      // and collect the name for a post-export warning.
       const filledCells = cellMap.filter(
         (c): c is Exclude<(typeof cellMap)[number], { kind: 'covered' }> =>
           c.kind !== 'covered' && getSlot(chart, c.slotIndex) !== null,
       )
 
       const imgBySlot = new Map<number, HTMLImageElement>()
+      const failedCards: string[] = []
 
       for (const cell of filledCells) {
         const slot = getSlot(chart, cell.slotIndex)!
@@ -191,40 +165,41 @@ export function useExport(
         if (slot.kind === 'custom') {
           try {
             imgBySlot.set(cell.slotIndex, await loadImage(slot.localImageDataUrl))
-          } catch (e) {
-            throw new Error(`Failed to load image for "${slot.label}". Try again.`, { cause: e })
+          } catch {
+            failedCards.push(slot.label)
           }
           continue
         }
 
-        const artCropUrl = slot.imageUris[slot.selectedFaceIndex].artCrop
-
-        let blob: Blob
         try {
-          blob = await fetchAsBlob(artCropUrl)
-        } catch (e) {
-          if (!(e instanceof FetchError) || e.status !== 404) throw e
-          const recovered = await fetchCardById(slot.scryfallId)
-          if (!recovered) {
-            throw new Error(`Failed to load image for "${slot.cardName}". Try again.`, { cause: e })
-          }
-          onSlotImageUpdate(cell.slotIndex, recovered.imageUris)
-          const newUrl = recovered.imageUris[slot.selectedFaceIndex]?.artCrop
-          if (!newUrl) {
-            throw new Error(`No image available for "${slot.cardName}".`, { cause: e })
-          }
-          try {
-            blob = await fetchAsBlob(newUrl)
-          } catch (retryErr) {
-            throw new Error(`Failed to load image for "${slot.cardName}". Try again.`, {
-              cause: retryErr,
-            })
-          }
-        }
+          const artCropUrl = slot.imageUris[slot.selectedFaceIndex].artCrop
 
-        const blobUrl = URL.createObjectURL(blob)
-        blobUrls.push(blobUrl)
-        imgBySlot.set(cell.slotIndex, await loadImage(blobUrl))
+          let blob: Blob
+          try {
+            blob = await fetchAsBlob(artCropUrl)
+          } catch (e) {
+            // Only a 404 is recoverable (stale image URL) — re-fetch the card by id.
+            if (!(e instanceof FetchError) || e.status !== 404) throw e
+            const recovered = await fetchCardById(slot.scryfallId)
+            if (!recovered) throw e
+            onSlotImageUpdate(cell.slotIndex, recovered.imageUris)
+            const newUrl = recovered.imageUris[slot.selectedFaceIndex]?.artCrop
+            if (!newUrl) throw e
+            blob = await fetchAsBlob(newUrl)
+          }
+
+          const blobUrl = URL.createObjectURL(blob)
+          blobUrls.push(blobUrl)
+          imgBySlot.set(cell.slotIndex, await loadImage(blobUrl))
+        } catch {
+          failedCards.push(slot.cardName)
+        }
+      }
+
+      // A genuinely empty export (cards present but none could load) is a hard error.
+      if (filledCells.length > 0 && imgBySlot.size === 0) {
+        setError("Export failed — couldn't load any card art. Check your connection and try again.")
+        return
       }
 
       // Draw
@@ -254,11 +229,7 @@ export function useExport(
         ctx.fillStyle = TEXT_PRIMARY
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
-        ctx.fillText(
-          chart.title,
-          padding + innerW / 2,
-          padding + titleHeight / 2,
-        )
+        ctx.fillText(chart.title, padding + innerW / 2, padding + titleHeight / 2)
         ctx.restore()
       }
 
@@ -386,10 +357,21 @@ export function useExport(
           a.href = url
           a.download = `${chart.title || chart.name || 'mtg-chart'}.png`
           a.click()
-          URL.revokeObjectURL(url)
+          // Defer the revoke — Safari intermittently aborts a download whose blob
+          // URL is revoked synchronously right after click().
+          setTimeout(() => URL.revokeObjectURL(url), 1000)
           resolve()
         }, 'image/png')
       })
+
+      // Surface any per-cell failures (and/or the scale downgrade) as a warning —
+      // the export still succeeded.
+      const warnings: string[] = []
+      if (downgraded) warnings.push('Export downgraded to 1× — grid is too large for 2×.')
+      if (failedCards.length > 0) {
+        warnings.push(`Exported, but couldn't load art for: ${failedCards.join(', ')}.`)
+      }
+      if (warnings.length > 0) setWarning(warnings.join(' '))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Export failed.')
     } finally {
@@ -397,7 +379,7 @@ export function useExport(
       setExporting(false)
       exportingRef.current = false
     }
-  }, [chart, scale, onSlotImageUpdate, gridRef])
+  }, [chart, scale, onSlotImageUpdate])
 
   return { exporting, error, warning, scale, setScale, dismissError, dismissWarning, triggerExport }
 }

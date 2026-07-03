@@ -477,7 +477,7 @@ function App() {
     dismissError,
     dismissWarning,
     triggerExport,
-  } = useExport(activeChart, handleSlotImageUpdate, gridRef)
+  } = useExport(activeChart, handleSlotImageUpdate)
 
   const notifications = (
     <>
