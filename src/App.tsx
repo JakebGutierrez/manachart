@@ -3,6 +3,7 @@ import './App.css'
 import ControlPanel from '@/components/ControlPanel'
 import GridArea from '@/components/Grid'
 import ImportModal from '@/components/ImportModal'
+import ConfirmDialog from '@/components/Dialog/ConfirmDialog'
 import { generateCellMap } from '@/utils/cellMap'
 import { getSlot, resolveSlotFillTarget } from '@/utils/chart'
 import { useExport } from '@/hooks/useExport'
@@ -40,6 +41,13 @@ interface History {
 }
 
 type CropValues = { cropX: number; cropY: number; cropScale: number }
+
+// A destructive action awaiting ConfirmDialog resolution. Stored as a
+// discriminated action rather than a captured callback so confirming always
+// applies through the current handlers against the freshest chart state.
+type PendingConfirm =
+  | { kind: 'layout-change'; mode: LayoutMode }
+  | { kind: 'clear-cards' }
 
 function App() {
   const {
@@ -103,6 +111,7 @@ function App() {
   const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null)
 
   // History resets synchronously when switching charts so canUndo/canRedo are
   // immediately correct for the newly active chart.
@@ -167,16 +176,23 @@ function App() {
   // Stable keyboard listener via ref — avoids re-registering on every history change.
   // useLayoutEffect (not useEffect) closes the window between commit and the native
   // keydown firing, preventing a keystroke from calling a stale closure.
-  const undoRedoRef = useRef({ undo, redo, importActive: false })
+  const undoRedoRef = useRef({ undo, redo, modalBlocked: false })
   useLayoutEffect(() => {
-    undoRedoRef.current = { undo, redo, importActive: showImportModal }
+    undoRedoRef.current = {
+      undo,
+      redo,
+      modalBlocked: showImportModal || pendingConfirm !== null,
+    }
   })
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       // Block undo/redo while the import modal is open — runLoop has pre-assigned
       // slot indices and does not cancel on chart changes, so mutating the chart
-      // mid-import can cause cards to land in the wrong slots.
-      if (undoRedoRef.current.importActive) return
+      // mid-import can cause cards to land in the wrong slots. Also blocked while
+      // a confirm dialog is pending: window.confirm used to freeze the page, and
+      // undoing under an open confirm would let the confirmed action apply to a
+      // different chart than the one the user was shown.
+      if (undoRedoRef.current.modalBlocked) return
       // Let the browser's native undo/redo handle Cmd/Ctrl+Z inside text fields
       // instead of hijacking it for chart-level undo (B3).
       if (isEditableEventTarget(e.target)) return
@@ -335,18 +351,28 @@ function App() {
     [updateChartWithHistory],
   )
 
-  const handleLayoutModeChange = useCallback(
+  const applyLayoutMode = useCallback(
     (mode: LayoutMode) => {
-      if (getLayoutMode(activeChart.heroConfig) === mode) return
-      const hasCards = activeChart.slots.some((s) => s !== null)
-      if (hasCards && !window.confirm('Changing the layout will clear all placed cards. Continue?')) return
       const heroConfig = mode === 'commander' ? COMMANDER_HERO_CONFIG
         : mode === 'partner' ? PARTNER_HERO_CONFIG
         : []
       const layout: Layout = mode === 'uniform' ? 'uniform' : 'hybrid'
       updateChartWithHistory((prev) => ({ ...prev, heroConfig, layout, slots: [] }))
     },
-    [activeChart, updateChartWithHistory],
+    [updateChartWithHistory],
+  )
+
+  const handleLayoutModeChange = useCallback(
+    (mode: LayoutMode) => {
+      if (getLayoutMode(activeChart.heroConfig) === mode) return
+      const hasCards = activeChart.slots.some((s) => s !== null)
+      if (hasCards) {
+        setPendingConfirm({ kind: 'layout-change', mode })
+        return
+      }
+      applyLayoutMode(mode)
+    },
+    [activeChart, applyLayoutMode],
   )
 
   const handleSort = useCallback(
@@ -360,11 +386,25 @@ function App() {
     updateChartWithHistory((prev) => ({ ...prev, slots: shuffleSlots(prev.slots) }))
   }, [updateChartWithHistory])
 
-  const handleClearCards = useCallback(() => {
-    if (!window.confirm('Clear all cards from this chart?')) return
+  const applyClearCards = useCallback(() => {
     setSelectedSlotIndex(null)
     updateChartWithHistory((prev) => ({ ...prev, slots: [] }))
   }, [updateChartWithHistory])
+
+  const handleClearCards = useCallback(() => {
+    setPendingConfirm({ kind: 'clear-cards' })
+  }, [])
+
+  // Confirm resolves through the handlers of the render in which the user clicked
+  // Confirm, so the action applies to the freshest chart state.
+  const handleConfirmResolve = useCallback(() => {
+    if (!pendingConfirm) return
+    setPendingConfirm(null)
+    if (pendingConfirm.kind === 'layout-change') applyLayoutMode(pendingConfirm.mode)
+    else applyClearCards()
+  }, [pendingConfirm, applyLayoutMode, applyClearCards])
+
+  const handleConfirmCancel = useCallback(() => setPendingConfirm(null), [])
 
   const handleCopyLink = useCallback((): Promise<number> => {
     const { encoded, customSlotsOmitted } = encodeShareLink(activeChart)
@@ -601,6 +641,19 @@ function App() {
           onSlotPlace={handleSlotPlace}
           onExpandGrid={handleImportExpand}
           onClose={() => setShowImportModal(false)}
+        />
+      )}
+      {pendingConfirm && (
+        <ConfirmDialog
+          message={
+            pendingConfirm.kind === 'layout-change'
+              ? 'Changing the layout will clear all placed cards. Continue?'
+              : 'Clear all cards from this chart?'
+          }
+          confirmLabel={pendingConfirm.kind === 'layout-change' ? 'Change layout' : 'Clear cards'}
+          danger
+          onConfirm={handleConfirmResolve}
+          onCancel={handleConfirmCancel}
         />
       )}
       <GridArea
