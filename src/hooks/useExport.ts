@@ -465,21 +465,39 @@ export function useExport(
       if (!blob) throw new Error('Export produced no image to copy.')
       return blob
     })
-    return navigator.clipboard.write([new ClipboardItem({ 'image/png': blobPromise })])
+    try {
+      return navigator.clipboard.write([new ClipboardItem({ 'image/png': blobPromise })])
+    } catch (err) {
+      // ClipboardItem construction / clipboard.write can throw *synchronously*
+      // (not just reject) on some engines. Convert that into a rejected promise so
+      // the caller's "Copy failed" .catch still fires, and attach a no-op handler
+      // to the now-orphaned blob promise so it can't surface as an unhandled
+      // rejection when the export later settles.
+      blobPromise.catch(() => {})
+      return Promise.reject(err instanceof Error ? err : new Error('Copy failed.'))
+    }
   }, [runExport])
 
   // Native share-sheet disposal (mobile). navigator.share needs the real File at
-  // call time (no promise form), so we render first, then share; a user-dismissed
-  // sheet rejects with AbortError, which is a non-event and swallowed.
+  // call time (no promise form), so we render first, then share. Because rendering
+  // is async, a slow export can outlive the tap's transient activation window; the
+  // share then rejects (commonly NotAllowedError) and the sheet never opens. Rather
+  // than fail silently, fall back to a plain download so the user always gets their
+  // image. Only a genuine user dismissal (AbortError) is swallowed as a non-event.
   const shareExport = useCallback(async (): Promise<void> => {
     const blob = await runExport()
     if (!blob) return
-    const file = new File([blob], exportFilename(chart), { type: 'image/png' })
-    if (!supportsFileShare(file, realShareEnv())) return
+    const filename = exportFilename(chart)
+    const file = new File([blob], filename, { type: 'image/png' })
+    if (!supportsFileShare(file, realShareEnv())) {
+      downloadBlob(blob, filename)
+      return
+    }
     try {
       await navigator.share({ files: [file] })
     } catch (err) {
-      if ((err as Error).name !== 'AbortError') throw err
+      if ((err as Error).name === 'AbortError') return
+      downloadBlob(blob, filename)
     }
   }, [runExport, chart])
 
