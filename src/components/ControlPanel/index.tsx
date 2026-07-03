@@ -190,20 +190,31 @@ function CropEditor({
   onCropChange: (crop: CropValues) => void
 }) {
   const previewRef = useRef<HTMLDivElement>(null)
-  const dragStateRef = useRef<{ startX: number; startY: number; cropX: number; cropY: number } | null>(null)
-  const moveListenerRef = useRef<((e: MouseEvent) => void) | null>(null)
-  const upListenerRef = useRef<((e: MouseEvent) => void) | null>(null)
+  const dragStateRef = useRef<{ pointerId: number; startX: number; startY: number; cropX: number; cropY: number } | null>(null)
+  const moveListenerRef = useRef<((e: PointerEvent) => void) | null>(null)
+  const upListenerRef = useRef<((e: PointerEvent) => void) | null>(null)
 
   // Remove any active window listeners if the editor unmounts mid-drag (e.g. selected
-  // slot is cleared while the mouse button is still held down).
+  // slot is cleared while the pointer is still down).
   useEffect(() => () => {
-    if (moveListenerRef.current) window.removeEventListener('mousemove', moveListenerRef.current)
-    if (upListenerRef.current) window.removeEventListener('mouseup', upListenerRef.current)
+    if (moveListenerRef.current) window.removeEventListener('pointermove', moveListenerRef.current)
+    if (upListenerRef.current) {
+      window.removeEventListener('pointerup', upListenerRef.current)
+      window.removeEventListener('pointercancel', upListenerRef.current)
+    }
   }, [])
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    // A second pointer landing mid-drag (multi-touch) must not restart the gesture.
+    if (dragStateRef.current) return
     e.preventDefault()
+    // Capture keeps moves flowing after the pointer leaves the preview. It throws if
+    // the pointer is already up, and jsdom's implementation is partial — skip quietly.
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId)
+    } catch { /* ignore */ }
     dragStateRef.current = {
+      pointerId: e.pointerId,
       startX: e.clientX,
       startY: e.clientY,
       cropX: slot.cropX,
@@ -213,8 +224,9 @@ function CropEditor({
     // undo entry. onCropDragBegin is called only on the first actual movement.
     let begun = false
 
-    const handleMouseMove = (ev: MouseEvent) => {
-      if (!dragStateRef.current || !previewRef.current) return
+    const handlePointerMove = (ev: PointerEvent) => {
+      if (!dragStateRef.current || ev.pointerId !== dragStateRef.current.pointerId) return
+      if (!previewRef.current) return
       if (!begun) {
         begun = true
         onCropDragBegin()
@@ -228,18 +240,21 @@ function CropEditor({
       onCropLive({ cropX: newCropX, cropY: newCropY, cropScale: slot.cropScale })
     }
 
-    const handleMouseUp = () => {
+    const handlePointerUp = (ev: PointerEvent) => {
+      if (dragStateRef.current && ev.pointerId !== dragStateRef.current.pointerId) return
       dragStateRef.current = null
       moveListenerRef.current = null
       upListenerRef.current = null
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('mouseup', handleMouseUp)
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+      window.removeEventListener('pointercancel', handlePointerUp)
     }
 
-    moveListenerRef.current = handleMouseMove
-    upListenerRef.current = handleMouseUp
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('mouseup', handleMouseUp)
+    moveListenerRef.current = handlePointerMove
+    upListenerRef.current = handlePointerUp
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+    window.addEventListener('pointercancel', handlePointerUp)
   }, [slot.cropX, slot.cropY, slot.cropScale, onCropDragBegin, onCropLive])
 
   const aspectRatio = displayMode === 'square' ? '1 / 1' : '4 / 3'
@@ -250,7 +265,7 @@ function CropEditor({
         ref={previewRef}
         className={styles.cropPreview}
         style={{ aspectRatio }}
-        onMouseDown={handleMouseDown}
+        onPointerDown={handlePointerDown}
       >
         <img
           className={styles.cropPreviewImg}

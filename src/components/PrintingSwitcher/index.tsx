@@ -73,7 +73,13 @@ export default function PrintingSwitcher({ currentSlot, onSelect, onClose }: Pro
         if (!modalRef.current?.contains(e.target as Node)) onClose()
       }}
     >
-      <div ref={modalRef} className={styles.modal}>
+      <div
+        ref={modalRef}
+        className={styles.modal}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Switch printing — ${currentSlot.cardName}`}
+      >
         <div className={styles.header}>
           <span className={styles.title}>Switch Printing — {currentSlot.cardName}</span>
           <button className={styles.closeBtn} type="button" aria-label="Close" onClick={onClose}>

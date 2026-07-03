@@ -115,6 +115,7 @@ export default function ImportModal({ chart, onImportBegin, onSlotPlace, onExpan
               </p>
               <progress
                 className={styles.progressBar}
+                aria-label="Import progress"
                 value={phase.progress}
                 max={phase.total}
               />

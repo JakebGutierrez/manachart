@@ -484,7 +484,6 @@ function App() {
   const selectedSlot =
     selectedSlotIndex !== null ? (getSlot(activeChart, selectedSlotIndex) ?? null) : null
 
-  const gridRef = useRef<HTMLDivElement>(null)
   const {
     exporting,
     error: exportError,
@@ -613,7 +612,6 @@ function App() {
         onFaceToggle={handleFaceToggle}
         selectedSlotIndex={selectedSlotIndex}
         onCellSelect={handleCellSelect}
-        gridRef={gridRef}
         notifications={notifications}
       />
     </div>

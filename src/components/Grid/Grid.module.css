@@ -91,6 +91,7 @@
 }
 
 .cell:hover .removeBtn,
+.cellSelected .removeBtn,
 .removeBtn:focus-visible {
   opacity: 1;
 }
@@ -121,6 +122,7 @@
 }
 
 .cell:hover .printingBtn,
+.cellSelected .printingBtn,
 .printingBtn:focus-visible {
   opacity: 1;
 }
@@ -151,6 +153,7 @@
 }
 
 .cell:hover .flipBtn,
+.cellSelected .flipBtn,
 .flipBtn:focus-visible {
   opacity: 1;
 }
