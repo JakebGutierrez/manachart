@@ -169,46 +169,52 @@ is the fix — no rewrite required.
 
 ### Export flow (`useExport.ts`)
 
-**Step 1 — Deterministic geometry + platform-aware pixel-budget preflight**
+**Step 1 — Deterministic target-resolution geometry + pixel-budget preflight**
 
 Export dimensions are derived from chart config alone — **never** from the live
 DOM/viewport — so the same chart exports at the same resolution on every device
 (and mobile is no longer downscaled to its narrow viewport). The pure geometry
-(layout, cover-crop source rect, `fitsAt`, sidebar measure, truncation) lives in
-`src/utils/exportGeometry.ts` and is unit-tested; the hook is only the caller.
+(cell sizing, layout, cover-crop source rect, `fitsAt`, scale resolution, sidebar
+measure, truncation) lives in `src/utils/exportGeometry.ts` and is unit-tested;
+the hook is only the caller.
+
+**Target-resolution cell sizing.** Rather than a fixed cell width (which made small
+charts tiny and large charts overflow), the cell width is *solved* so the grid's
+long edge lands near a base target, then clamped:
 
 ```typescript
-const isIOS =
-  /iPhone|iPad|iPod/.test(navigator.userAgent) ||
-  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
-
-// Fixed logical cell width — the whole point of the determinism fix.
-const cellW = EXPORT_CELL_W                 // 180 (src/utils/exportGeometry.ts)
+// computeCellWidth(): solve cellW so the grid long edge ≈ BASE_TARGET_LONG_EDGE,
+// then clamp to [MIN_CELL_W, MAX_CELL_W]. Small grids get big cells (a 1×1 hits the
+// target); large grids get small cells. Fully deterministic — no DOM.
+const k = displayMode === 'square' ? 1 : 3 / 4
+const byWidth  = (BASE_TARGET_LONG_EDGE - (cols - 1) * gap) / cols
+const byHeight = (BASE_TARGET_LONG_EDGE - (rows - 1) * gap) / (rows * k)
+const cellW = clamp(Math.min(byWidth, byHeight), MIN_CELL_W, MAX_CELL_W)
 const cellH = displayMode === 'square' ? cellW : cellW * (3 / 4)
 
-// sidebarWidth: 0 unless nameDisplayMode === 'sidebar', in which case it is the
-//   widest name (via an injected canvas measurer) clamped to [120, 200].
-// titleHeight: title ? titleFontSize * 1.5 + paddingBottom : 0
+// BASE_TARGET_LONG_EDGE = 1400, MIN_CELL_W = 88, MAX_CELL_W = 1400.
+// → a 1×1 exports ~2864px on its long edge at 2× (vs a fixed-180's ~424px), and a
+//   10×10 lands at ~136px cells, which stays inside the iOS budget at 1×.
+
 // computeExportLayout() returns cellW/cellH/totalGrid*/titleHeight/innerW/innerH,
-//   where innerW = totalGridW + sidebarSection and innerH = totalGridH + titleHeight.
+//   innerW = totalGridW + sidebarSection, innerH = totalGridH + titleHeight.
+//   sidebarWidth: widest name via an injected canvas measurer, clamped [120,200].
+//   titleHeight: title ? titleFontSize * 1.5 + paddingBottom : 0.
 
-const exportWidth  = (innerW + 2 * padding) * scale
+const exportWidth  = (innerW + 2 * padding) * scale   // scale is the user's 1×/2×
 const exportHeight = (innerH + 2 * padding) * scale
+```
 
+**Scale preflight** — `resolveExportScale(innerW, innerH, padding, requested, isIOS)`:
+
+```typescript
 // Desktop: 8,192px per side (conservative for Chrome/Firefox/Edge/Safari 15.4+)
 // iOS: 3,000,000 total pixels (conservative floor for all iOS devices)
-// Note: total-area limits can still be hit on low-memory desktop hardware at extreme
-// grid sizes; canvas creation failure is caught in Step 4.
-if (isIOS) {
-  if (exportWidth * exportHeight > 3_000_000) {
-    // offer 1× — if still over, hard error
-  }
-} else {
-  if (exportWidth > 8192 || exportHeight > 8192) {
-    // offer 1× — if still over, hard error: "Grid is too large to export.
-    // Reduce grid size or cell dimensions."
-  }
-}
+// - requested scale (2×) if it fits → use it (desktop always does here)
+// - else 1× if that fits → downgrade (iOS takes this for larger/square grids;
+//     surfaced as a soft "Exported at 1× — 2× exceeds this device's canvas limit")
+// - else null → hard error (Task-3 message). With target sizing this is reserved
+//     for genuinely extreme configs; every 10×10 variant still fits at 1×.
 ```
 
 **Step 2 — Pre-fetch images as blobs (graceful per-cell degradation)**
@@ -220,13 +226,20 @@ If an image still can't be loaded: DO NOT abort. Skip that cell (it renders as t
 After a successful export, surface any skipped cells via the warning state:
   "Exported, but couldn't load art for: X, Y." A scale downgrade is folded into the
   same warning.
-Only a fully empty result (cards present but none loaded) is a hard error.
+If MORE THAN HALF the filled cells fail, that's a systemic problem (rate-limiting,
+  decode failures), not one stale image → hard error instead of a mostly-empty PNG.
+A fully empty result (cards present but none loaded) is likewise a hard error.
 ```
 
-The grid's `<img>` tags carry `crossOrigin="anonymous"` so their cached responses
-are CORS-usable and the export's `fetch(mode:'cors')` reuses them, rather than the
-browser caching an opaque (no-cors) response the export can't reuse and then failing
-on a cold-cache fetch.
+**CORS handling.** *Every* `<img>` that loads a Scryfall art URL carries
+`crossOrigin="anonymous"` — the grid, the crop preview (`ControlPanel`), the search
+results (`SearchPanel`), and the printing thumbnails (`PrintingSwitcher`). This is
+because the browser HTTP cache is keyed by CORS mode: a no-cors `<img>` load caches
+an *opaque* response the export's `fetch(mode:'cors')` cannot reuse, forcing a fresh
+request that can fail on a cold-cache origin. Loading every path anonymously means
+all art shares one CORS-usable cache entry and no path can poison it. Safe because
+`cards.scryfall.io` serves `Access-Control-Allow-Origin: *`; data-URL custom slots
+are unaffected.
 
 **Step 3 — Load images**
 ```
