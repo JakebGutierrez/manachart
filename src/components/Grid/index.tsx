@@ -208,6 +208,11 @@ export default function GridArea({
                         <img
                           className={styles.cardImg}
                           src={imgSrc}
+                          // CORS-consistent with the export's fetch(mode:'cors') so both
+                          // share one cache entry — the grid load no longer poisons the
+                          // cache with an opaque response the export can't reuse. Harmless
+                          // on custom data: URLs (treated same-origin).
+                          crossOrigin="anonymous"
                           alt={displayName}
                           style={{
                             objectPosition: `${slot.cropX * 100}% ${slot.cropY * 100}%`,
