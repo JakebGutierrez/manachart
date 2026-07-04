@@ -15,7 +15,11 @@ function ownerAt(cellMap: CellMap, cols: number, row: number, col: number): numb
   const rows = cellMap.length / cols
   if (row < 0 || col < 0 || row >= rows || col >= cols) return null
   const cell = cellMap[row * cols + col]
-  return cell.kind === 'covered' ? cell.heroSlotIndex : cell.slotIndex
+  const owner = cell.kind === 'covered' ? cell.heroSlotIndex : cell.slotIndex
+  // Treat a malformed cell (e.g. a hand-built covered cell missing its
+  // back-pointer) as blocked rather than propagating undefined, so moveFocus can
+  // never return a non-number.
+  return typeof owner === 'number' && Number.isInteger(owner) ? owner : null
 }
 
 // Find the canonical (top-left) grid position of a slotIndex: the array index of

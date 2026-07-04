@@ -47,16 +47,24 @@ export default function ContextMenu({
     if (autoFocus) menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
   }, [autoFocus])
 
-  // Arrow/Home/End roving among menu items (the menu is one composite widget).
+  // Arrow/Home/End roving among menu items, plus a Tab trap so keyboard focus is
+  // contained within the open menu (items are tabIndex=-1, so a bare Tab would
+  // otherwise walk out of the menu while it stays open). The menu is one
+  // composite widget with a single conceptual tab stop.
   function handleMenuKeyDown(e: React.KeyboardEvent) {
     const items = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>('button') ?? [])]
     if (items.length === 0) return
     const current = items.indexOf(document.activeElement as HTMLButtonElement)
     let next: number | null = null
-    if (e.key === 'ArrowDown') next = current < 0 ? 0 : (current + 1) % items.length
-    else if (e.key === 'ArrowUp') next = current <= 0 ? items.length - 1 : current - 1
-    else if (e.key === 'Home') next = 0
-    else if (e.key === 'End') next = items.length - 1
+    if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) {
+      next = current < 0 ? 0 : (current + 1) % items.length
+    } else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
+      next = current <= 0 ? items.length - 1 : current - 1
+    } else if (e.key === 'Home') {
+      next = 0
+    } else if (e.key === 'End') {
+      next = items.length - 1
+    }
     if (next === null) return
     e.preventDefault()
     items[next].focus()
@@ -71,16 +79,16 @@ export default function ContextMenu({
       style={{ left: position.x, top: position.y }}
       onKeyDown={handleMenuKeyDown}
     >
-      <button className={styles.item} type="button" role="menuitem" onClick={onRemove}>
+      <button className={styles.item} type="button" role="menuitem" tabIndex={-1} onClick={onRemove}>
         Remove
       </button>
       {onSwitchPrinting && (
-        <button className={styles.item} type="button" role="menuitem" onClick={onSwitchPrinting}>
+        <button className={styles.item} type="button" role="menuitem" tabIndex={-1} onClick={onSwitchPrinting}>
           Switch Printing
         </button>
       )}
       {onSwitchFace && (
-        <button className={styles.item} type="button" role="menuitem" onClick={onSwitchFace}>
+        <button className={styles.item} type="button" role="menuitem" tabIndex={-1} onClick={onSwitchFace}>
           Switch Face
         </button>
       )}

@@ -174,6 +174,42 @@ describe('grid keyboard spine', () => {
     unmount()
   })
 
+  it('traps Tab within the open context menu', () => {
+    seedChart([makeSlot('Bolt'), null, null, null])
+    const { container, unmount } = renderComponent(<App />)
+
+    const c0 = cell(container, 0)
+    act(() => c0.focus())
+    pressKey(c0, 'F10', { shiftKey: true })
+
+    const menu = document.querySelector('[role="menu"]')!
+    const items = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    expect(items.length).toBeGreaterThanOrEqual(2) // Remove + Switch Printing
+    expect(document.activeElement).toBe(items[0])
+
+    // Tab cycles forward within the menu instead of walking out of it.
+    pressKey(items[0], 'Tab')
+    expect(document.activeElement).toBe(items[1])
+    // Tab from the last item wraps back to the first — focus never escapes.
+    pressKey(items[items.length - 1], 'Tab')
+    expect(document.activeElement).toBe(items[0])
+    // Shift+Tab goes backward, still contained.
+    pressKey(items[0], 'Tab', { shiftKey: true })
+    expect(document.activeElement).toBe(items[items.length - 1])
+    unmount()
+  })
+
+  it('context menu items are out of the page tab order (roving)', () => {
+    seedChart([makeSlot('Bolt'), null, null, null])
+    const { container, unmount } = renderComponent(<App />)
+    const c0 = cell(container, 0)
+    act(() => c0.focus())
+    pressKey(c0, 'F10', { shiftKey: true })
+    const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    for (const item of items) expect(item.getAttribute('tabindex')).toBe('-1')
+    unmount()
+  })
+
   it('does not open the context menu on an empty cell', () => {
     seedChart([null, null, null, null])
     const { container, unmount } = renderComponent(<App />)
@@ -216,6 +252,34 @@ describe('segmented control arrow-key roving', () => {
 
     const after = [...group.querySelectorAll<HTMLElement>('[role="radio"]')]
     expect(after[1].getAttribute('aria-checked')).toBe('true')
+    // focus followed the change to the newly-checked radio
+    expect(document.activeElement).toBe(after[1])
+    unmount()
+  })
+
+  it('keeps focus on the checked radio when a change is deferred then cancelled', () => {
+    // Layout change with cards present opens a confirm dialog instead of applying.
+    seedChart([makeSlot('Bolt'), makeSlot('Path'), null, null])
+    const { container, unmount } = renderComponent(<App />)
+
+    const group = [...container.querySelectorAll('[role="radiogroup"]')].find(
+      (g) => g.getAttribute('aria-label') === 'Layout mode',
+    )!
+    const uniform = group.querySelectorAll<HTMLElement>('[role="radio"]')[0]
+    expect(uniform.getAttribute('aria-checked')).toBe('true')
+
+    act(() => uniform.focus())
+    pressKey(uniform, 'ArrowRight') // request Commander → opens confirm, value unchanged
+
+    expect(document.querySelector('[role="dialog"]')).toBeTruthy()
+    // Cancel the deferred change.
+    click(buttonByText(document.body, 'Cancel'))
+
+    // Layout is still uniform, and focus is restored to the still-checked Uniform
+    // radio — not stranded on the unchecked Commander option.
+    const uniformAfter = group.querySelectorAll<HTMLElement>('[role="radio"]')[0]
+    expect(uniformAfter.getAttribute('aria-checked')).toBe('true')
+    expect(document.activeElement).toBe(uniformAfter)
     unmount()
   })
 })

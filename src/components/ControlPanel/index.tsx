@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react'
 import type { Chart, Slot, NumericStyleField, NameDisplayMode, DisplayMode, HeroConfig } from '@/types/chart'
 import type { SortKey } from '@/utils/sort'
 import { ALLOWED_TITLE_FONTS } from '@/utils/shareLink'
@@ -85,6 +85,25 @@ function SegmentedControl<T extends string | number>({
   onChange: (v: T) => void
 }) {
   const groupRef = useRef<HTMLDivElement>(null)
+  // Set when an arrow keypress requests a value change. Focus is then moved by the
+  // effect below — after the change actually lands — rather than eagerly to the
+  // requested option. If onChange defers the change (e.g. a layout change opens a
+  // confirm dialog) or it is cancelled, `value` never changes, the effect never
+  // runs, and focus stays on the still-checked radio instead of stranding on an
+  // unchecked, tabIndex=-1 option.
+  const pendingRefocus = useRef(false)
+
+  useLayoutEffect(() => {
+    if (!pendingRefocus.current) return
+    pendingRefocus.current = false
+    // Only follow the checked value if focus is still inside this group, so an
+    // unrelated value change (undo, etc.) can never steal focus here.
+    if (!groupRef.current?.contains(document.activeElement)) return
+    const idx = options.findIndex((o) => o.value === value)
+    if (idx >= 0) groupRef.current.querySelectorAll<HTMLButtonElement>('[role="radio"]')[idx]?.focus()
+    // options is a stable per-render list of the same values; value is the driver.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
 
   function handleKeyDown(e: React.KeyboardEvent) {
     const idx = options.findIndex((o) => o.value === value)
@@ -98,8 +117,8 @@ function SegmentedControl<T extends string | number>({
       return
     }
     e.preventDefault()
+    pendingRefocus.current = true
     onChange(options[next].value)
-    groupRef.current?.querySelectorAll<HTMLButtonElement>('[role="radio"]')[next]?.focus()
   }
 
   return (

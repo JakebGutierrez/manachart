@@ -163,6 +163,40 @@ describe('moveFocus — partner heroes (two 2×1) in a 4×4 grid', () => {
   })
 })
 
+describe('moveFocus — overlapping hero config (degenerate map robustness)', () => {
+  // Second hero's origin is covered by the first, so it is dropped; nav must stay
+  // fully functional and never return a non-number.
+  const grid = generateCellMap(4, 4, [
+    { row: 0, col: 0, rowSpan: 2, colSpan: 2 },
+    { row: 1, col: 1, rowSpan: 2, colSpan: 2 },
+  ])
+  const cols = 4
+
+  it('every move from every owned cell returns an integer slotIndex', () => {
+    const slots = grid.filter((c) => c.kind !== 'covered').map((c) => (c as { slotIndex: number }).slotIndex)
+    for (const from of slots) {
+      for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'] as const) {
+        expect(Number.isInteger(moveFocus(grid, cols, from, key))).toBe(true)
+      }
+    }
+  })
+
+  it('keyboard nav off the surviving hero still skips its covered span', () => {
+    expect(moveFocus(grid, cols, 0, 'ArrowRight')).toBe(1) // hero 0 → (0,2) slot 1
+    expect(moveFocus(grid, cols, 0, 'ArrowDown')).toBe(5) // skip covered rows → (2,0) slot 5
+  })
+})
+
+it('moveFocus never returns undefined on a hand-built covered cell missing its back-pointer', () => {
+  // A malformed map (e.g. from a future/hand-edited source) must not break nav.
+  const bad = [
+    { kind: 'slot', slotIndex: 0 },
+    { kind: 'covered' } as unknown as { kind: 'covered'; heroSlotIndex: number },
+  ]
+  // Moving right into the malformed covered cell stays put instead of returning undefined.
+  expect(moveFocus(bad as never, 2, 0, 'ArrowRight')).toBe(0)
+})
+
 describe('moveFocus — tall hero (rowSpan 3) traversal', () => {
   //  H  1  2
   //  .  3  4

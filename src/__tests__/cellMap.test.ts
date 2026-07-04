@@ -122,4 +122,43 @@ describe('generateCellMap', () => {
       expect(cells.some((c) => c.kind === 'covered')).toBe(false)
     })
   })
+
+  describe('overlapping heroes (crafted / legacy configs)', () => {
+    it('drops a hero whose origin is covered, leaving no undefined back-pointer', () => {
+      // Two 2×2 heroes: the second origin (1,1) sits inside the first hero's span.
+      const cells = generateCellMap(4, 4, [
+        { row: 0, col: 0, rowSpan: 2, colSpan: 2 },
+        { row: 1, col: 1, rowSpan: 2, colSpan: 2 },
+      ])
+      // Every covered cell has a valid integer back-pointer — never undefined.
+      for (const c of cells) {
+        if (c.kind === 'covered') expect(Number.isInteger(c.heroSlotIndex)).toBe(true)
+      }
+      // Only the first hero survives; the overlapped one is emitted as covered.
+      expect(cells.filter((c) => c.kind === 'hero')).toHaveLength(1)
+      expect(cells[5]).toEqual({ kind: 'covered', heroSlotIndex: 0 }) // (1,1) → first hero
+    })
+
+    it('a duplicate-origin hero is emitted once, no undefined back-pointer', () => {
+      const cells = generateCellMap(4, 4, [
+        { row: 0, col: 0, rowSpan: 2, colSpan: 2 },
+        { row: 0, col: 0, rowSpan: 2, colSpan: 2 },
+      ])
+      expect(cells.filter((c) => c.kind === 'hero')).toHaveLength(1)
+      for (const c of cells) {
+        if (c.kind === 'covered') expect(Number.isInteger(c.heroSlotIndex)).toBe(true)
+      }
+    })
+
+    it('slot indices remain sequential with no gaps after overlap resolution', () => {
+      const cells = generateCellMap(4, 4, [
+        { row: 0, col: 0, rowSpan: 2, colSpan: 2 },
+        { row: 1, col: 1, rowSpan: 2, colSpan: 2 },
+      ])
+      const owned = cells
+        .filter((c) => c.kind !== 'covered')
+        .map((c) => (c as { slotIndex: number }).slotIndex)
+      expect(owned).toEqual(owned.map((_, i) => i))
+    })
+  })
 })

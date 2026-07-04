@@ -77,11 +77,20 @@
 }
 
 /* Keyboard focus ring — an inset neutral ring, visually distinct from the gold
-   selection outline so both can be shown at once when the focused cell is also
-   selected (the common case under selection-follows-focus). */
+   selection outline. */
 .cell:focus-visible {
   outline: none;
   box-shadow: inset 0 0 0 2px var(--focus-ring);
+}
+
+/* Under selection-follows-focus the active cell is usually both selected AND
+   focused. Show both states at once — the gold selection outline PLUS a neutral
+   focus ring inset just inside it — so they read as two concentric, distinct
+   rings rather than the focus rule swallowing the selection outline. */
+.cellSelected:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  box-shadow: inset 0 0 0 4px var(--focus-ring);
 }
 
 .removeBtn {
