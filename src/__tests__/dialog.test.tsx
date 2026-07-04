@@ -75,6 +75,41 @@ describe('Dialog', () => {
     expect(document.activeElement).toBe(opener)
   })
 
+  it('falls back to the app root when the opener disabled itself before close', () => {
+    const opener = document.createElement('button')
+    appRoot.appendChild(opener)
+    act(() => opener.focus())
+
+    const { unmount } = renderComponent(
+      <Dialog label="d" onClose={() => {}}>
+        <button type="button">Ok</button>
+      </Dialog>,
+    )
+    // The confirmed action disabled its own opener (e.g. "Clear cards").
+    opener.disabled = true
+    unmount()
+
+    expect(document.activeElement).not.toBe(document.body)
+    expect(document.activeElement).toBe(appRoot)
+  })
+
+  it('falls back to the app root when the opener was removed before close', () => {
+    const opener = document.createElement('button')
+    appRoot.appendChild(opener)
+    act(() => opener.focus())
+
+    const { unmount } = renderComponent(
+      <Dialog label="d" onClose={() => {}}>
+        <button type="button">Ok</button>
+      </Dialog>,
+    )
+    opener.remove()
+    unmount()
+
+    expect(document.activeElement).not.toBe(document.body)
+    expect(document.activeElement).toBe(appRoot)
+  })
+
   it('honours an explicit initialFocus ref', () => {
     function Wrapper() {
       const ref = useRef<HTMLButtonElement>(null)

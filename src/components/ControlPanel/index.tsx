@@ -176,6 +176,11 @@ function ChartPicker({
   )
 }
 
+// Minimum pointer travel (px) before a crop press counts as a drag. Touch
+// digitizers emit tiny sub-pixel pointermoves during a plain tap; without a
+// threshold those would push an undo snapshot and register as a zero-op drag.
+const CROP_DRAG_SLOP_PX = 4
+
 function CropEditor({
   slot,
   displayMode,
@@ -228,6 +233,11 @@ function CropEditor({
       if (!dragStateRef.current || ev.pointerId !== dragStateRef.current.pointerId) return
       if (!previewRef.current) return
       if (!begun) {
+        // Ignore sub-slop jitter so a tap doesn't register as a drag: no undo
+        // snapshot and no crop change until the pointer has actually travelled.
+        const movedX = ev.clientX - dragStateRef.current.startX
+        const movedY = ev.clientY - dragStateRef.current.startY
+        if (Math.hypot(movedX, movedY) < CROP_DRAG_SLOP_PX) return
         begun = true
         onCropDragBegin()
       }

@@ -17,6 +17,16 @@ interface Props {
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
+// Whether the element that opened the dialog can still take focus back on close.
+// The action a dialog confirms may disable its own opener (e.g. "Clear cards"
+// disables itself once the grid is empty) or remove it from the DOM; focusing a
+// disabled/detached node silently drops focus to <body>, stranding the user.
+function canRestoreFocus(el: HTMLElement | null): el is HTMLElement {
+  if (!el || !el.isConnected) return false
+  if ('disabled' in el && (el as { disabled?: boolean }).disabled) return false
+  return true
+}
+
 // Lazily created portal target under document.body, shared by all dialogs.
 // Re-created if a previous one was detached (tests tear the DOM down between runs).
 let dialogRoot: HTMLElement | null = null
@@ -65,8 +75,17 @@ export default function Dialog({
 
     return () => {
       openCount--
-      if (openCount === 0) appRoot?.removeAttribute('inert')
-      opener?.focus()
+      const lastDialog = openCount === 0
+      if (lastDialog) appRoot?.removeAttribute('inert')
+      if (canRestoreFocus(opener)) {
+        opener.focus()
+      } else if (lastDialog && appRoot) {
+        // Opener disabled or detached by the action it triggered — fall back to
+        // the app root (made programmatically focusable) so focus never drops to
+        // <body>. Skipped while a parent dialog keeps the root inert.
+        appRoot.setAttribute('tabindex', '-1')
+        appRoot.focus()
+      }
     }
     // Mount-only by design: initialFocus is read once, at open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
