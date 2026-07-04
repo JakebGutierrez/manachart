@@ -3,6 +3,7 @@ import './App.css'
 import ControlPanel from '@/components/ControlPanel'
 import GridArea from '@/components/Grid'
 import ImportModal from '@/components/ImportModal'
+import PrintingSwitcher from '@/components/PrintingSwitcher'
 import ConfirmDialog from '@/components/Dialog/ConfirmDialog'
 import { generateCellMap } from '@/utils/cellMap'
 import { getSlot, resolveSlotFillTarget } from '@/utils/chart'
@@ -109,6 +110,10 @@ function App() {
   )
 
   const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null)
+  // Printing-switcher target lives here (not in Grid) so it can be opened from
+  // the Grid (per-cell button / context menu) and the Selected-card action
+  // surface alike. Cleared alongside selection on chart-level transitions.
+  const [printingForIndex, setPrintingForIndex] = useState<number | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null)
@@ -119,6 +124,7 @@ function App() {
     (id: string) => {
       setHistory({ past: [], future: [] })
       setSelectedSlotIndex(null)
+      setPrintingForIndex(null)
       setActiveId(id)
     },
     [setActiveId],
@@ -127,6 +133,7 @@ function App() {
   const handleCreateChart = useCallback(() => {
     setHistory({ past: [], future: [] })
     setSelectedSlotIndex(null)
+    setPrintingForIndex(null)
     createChart()
   }, [createChart])
 
@@ -135,6 +142,7 @@ function App() {
   const handleDuplicateChart = useCallback(() => {
     setHistory({ past: [], future: [] })
     setSelectedSlotIndex(null)
+    setPrintingForIndex(null)
     duplicateChart()
   }, [duplicateChart])
 
@@ -143,6 +151,7 @@ function App() {
       if (id === activeId) {
         setHistory({ past: [], future: [] })
         setSelectedSlotIndex(null)
+        setPrintingForIndex(null)
       }
       deleteChart(id)
     },
@@ -158,6 +167,7 @@ function App() {
       future: [activeChart, ...h.future.slice(0, 49)],
     }))
     setSelectedSlotIndex(null)
+    setPrintingForIndex(null)
     updateChart(() => snapshot)
   }, [history, activeChart, updateChart])
 
@@ -170,6 +180,7 @@ function App() {
       future: h.future.slice(1),
     }))
     setSelectedSlotIndex(null)
+    setPrintingForIndex(null)
     updateChart(() => snapshot)
   }, [history, activeChart, updateChart])
 
@@ -243,13 +254,14 @@ function App() {
   const handleSlotClear = useCallback(
     (slotIndex: number) => {
       if (slotIndex === selectedSlotIndex) setSelectedSlotIndex(null)
+      if (slotIndex === printingForIndex) setPrintingForIndex(null)
       updateChartWithHistory((prev) => {
         const slots = [...prev.slots]
         slots[slotIndex] = null
         return { ...prev, slots }
       })
     },
-    [updateChartWithHistory, selectedSlotIndex],
+    [updateChartWithHistory, selectedSlotIndex, printingForIndex],
   )
 
   const handleSlotMove = useCallback(
@@ -441,6 +453,36 @@ function App() {
     setSelectedSlotIndex(slotIndex)
   }, [])
 
+  // Open the printing switcher for a given slot (Grid button / context menu /
+  // Selected-card surface all route here).
+  const handleOpenPrintings = useCallback((slotIndex: number) => {
+    setPrintingForIndex(slotIndex)
+  }, [])
+
+  const handlePrintingSelect = useCallback(
+    (updated: Slot) => {
+      if (printingForIndex === null) return
+      const target = printingForIndex
+      setPrintingForIndex(null)
+      handleSlotUpdate(target, updated)
+    },
+    [printingForIndex, handleSlotUpdate],
+  )
+
+  // Selected-card action-surface callbacks: each operates on the current
+  // selection and reuses an existing domain handler.
+  const handleSelectedRemove = useCallback(() => {
+    if (selectedSlotIndex !== null) handleSlotClear(selectedSlotIndex)
+  }, [selectedSlotIndex, handleSlotClear])
+
+  const handleSelectedFlip = useCallback(() => {
+    if (selectedSlotIndex !== null) handleFaceToggle(selectedSlotIndex)
+  }, [selectedSlotIndex, handleFaceToggle])
+
+  const handleSelectedOpenPrintings = useCallback(() => {
+    if (selectedSlotIndex !== null) handleOpenPrintings(selectedSlotIndex)
+  }, [selectedSlotIndex, handleOpenPrintings])
+
   // Crop drag: push the pre-drag chart to history once on mousedown, then
   // apply live updates without history during the drag. This gives a single
   // undo step that reverts the entire drag, not one step per pixel moved.
@@ -523,6 +565,9 @@ function App() {
 
   const selectedSlot =
     selectedSlotIndex !== null ? (getSlot(activeChart, selectedSlotIndex) ?? null) : null
+
+  const printingSlot =
+    printingForIndex !== null ? (getSlot(activeChart, printingForIndex) ?? null) : null
 
   const {
     exporting,
@@ -622,6 +667,9 @@ function App() {
         onScaleChange={setExportScale}
         onExport={triggerExport}
         selectedSlot={selectedSlot}
+        onSelectedRemove={handleSelectedRemove}
+        onSelectedFlip={handleSelectedFlip}
+        onSelectedSwitchPrinting={handleSelectedOpenPrintings}
         onCropDragBegin={handleCropDragBegin}
         onCropLive={handleCropLive}
         onCropChange={handleCropChange}
@@ -659,14 +707,21 @@ function App() {
       <GridArea
         chart={activeChart}
         onSlotClear={handleSlotClear}
-        onSlotUpdate={handleSlotUpdate}
         onSlotMove={handleSlotMove}
         onSlotFillAtIndex={handleSlotFillAtIndex}
         onFaceToggle={handleFaceToggle}
+        onOpenPrintings={handleOpenPrintings}
         selectedSlotIndex={selectedSlotIndex}
         onCellSelect={handleCellSelect}
         notifications={notifications}
       />
+      {printingForIndex !== null && printingSlot !== null && printingSlot.kind === 'scryfall' && (
+        <PrintingSwitcher
+          currentSlot={printingSlot}
+          onSelect={handlePrintingSelect}
+          onClose={() => setPrintingForIndex(null)}
+        />
+      )}
     </div>
   )
 }

@@ -78,6 +78,13 @@ export function click(el: Element): void {
   })
 }
 
+// Dispatch a real keydown on an element (bubbles so grid-scoped handlers catch it).
+export function pressKey(el: Element, key: string, init: KeyboardEventInit = {}): void {
+  act(() => {
+    el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }))
+  })
+}
+
 export function byAriaLabel<T extends Element = HTMLElement>(root: ParentNode, label: string): T {
   const el = root.querySelector<T>(`[aria-label="${label}"]`)
   if (!el) throw new Error(`No element with aria-label="${label}"`)
