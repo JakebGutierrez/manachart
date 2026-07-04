@@ -183,7 +183,7 @@ describe('moveFocus — overlapping hero config (degenerate map robustness)', ()
 
   it('keyboard nav off the surviving hero still skips its covered span', () => {
     expect(moveFocus(grid, cols, 0, 'ArrowRight')).toBe(1) // hero 0 → (0,2) slot 1
-    expect(moveFocus(grid, cols, 0, 'ArrowDown')).toBe(5) // skip covered rows → (2,0) slot 5
+    expect(moveFocus(grid, cols, 0, 'ArrowDown')).toBe(4) // skip covered (1,0) → (2,0) slot 4
   })
 })
 

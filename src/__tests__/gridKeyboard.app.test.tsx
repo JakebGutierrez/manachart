@@ -282,6 +282,29 @@ describe('segmented control arrow-key roving', () => {
     expect(document.activeElement).toBe(uniformAfter)
     unmount()
   })
+
+  it('moves focus to the newly-checked radio when a deferred change is confirmed', () => {
+    seedChart([makeSlot('Bolt'), makeSlot('Path'), null, null])
+    const { container, unmount } = renderComponent(<App />)
+
+    const group = [...container.querySelectorAll('[role="radiogroup"]')].find(
+      (g) => g.getAttribute('aria-label') === 'Layout mode',
+    )!
+    const uniform = group.querySelectorAll<HTMLElement>('[role="radio"]')[0]
+    act(() => uniform.focus())
+    pressKey(uniform, 'ArrowRight') // request Commander → opens confirm
+
+    expect(document.querySelector('[role="dialog"]')).toBeTruthy()
+    click(buttonByText(document.body, 'Change layout')) // confirm
+
+    // Commander is now checked, and focus lands on it — not stranded on the
+    // now-unchecked, tabIndex=-1 Uniform radio.
+    const radios = group.querySelectorAll<HTMLElement>('[role="radio"]')
+    expect(radios[1].getAttribute('aria-checked')).toBe('true')
+    expect(radios[1].getAttribute('tabindex')).toBe('0')
+    expect(document.activeElement).toBe(radios[1])
+    unmount()
+  })
 })
 
 describe('action surface reaches every context-menu capability', () => {

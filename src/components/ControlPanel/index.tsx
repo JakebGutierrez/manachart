@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import type { Chart, Slot, NumericStyleField, NameDisplayMode, DisplayMode, HeroConfig } from '@/types/chart'
 import type { SortKey } from '@/utils/sort'
 import { ALLOWED_TITLE_FONTS } from '@/utils/shareLink'
@@ -93,11 +93,16 @@ function SegmentedControl<T extends string | number>({
   // unchecked, tabIndex=-1 option.
   const pendingRefocus = useRef(false)
 
-  useLayoutEffect(() => {
+  // Passive (not layout) effect: when the requested change involves a confirm
+  // dialog, the Dialog restores focus to its opener (the previously-checked radio)
+  // in its own passive-effect cleanup. Running here as a passive effect means we
+  // fire AFTER that restore, so we can move focus on to the newly-checked radio
+  // rather than no-opping while focus is still trapped in the dialog.
+  useEffect(() => {
     if (!pendingRefocus.current) return
     pendingRefocus.current = false
-    // Only follow the checked value if focus is still inside this group, so an
-    // unrelated value change (undo, etc.) can never steal focus here.
+    // Only follow the checked value if focus is inside this group (e.g. the Dialog
+    // just restored it here), so an unrelated value change can't steal focus.
     if (!groupRef.current?.contains(document.activeElement)) return
     const idx = options.findIndex((o) => o.value === value)
     if (idx >= 0) groupRef.current.querySelectorAll<HTMLButtonElement>('[role="radio"]')[idx]?.focus()

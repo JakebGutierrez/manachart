@@ -137,14 +137,24 @@ describe('generateCellMap', () => {
       // Only the first hero survives; the overlapped one is emitted as covered.
       expect(cells.filter((c) => c.kind === 'hero')).toHaveLength(1)
       expect(cells[5]).toEqual({ kind: 'covered', heroSlotIndex: 0 }) // (1,1) → first hero
+      // Parent-parity: the second hero's OWN span cells stay `covered` holes (they
+      // do not become normal slots), all chained back to the surviving hero.
+      for (const k of [6, 9, 10]) {
+        expect(cells[k]).toEqual({ kind: 'covered', heroSlotIndex: 0 })
+      }
+      // The set of covered keys matches the parent's last-wins union exactly.
+      const coveredKeys = cells.flatMap((c, i) => (c.kind === 'covered' ? [i] : []))
+      expect(coveredKeys).toEqual([1, 4, 5, 6, 9, 10])
     })
 
-    it('a duplicate-origin hero is emitted once, no undefined back-pointer', () => {
+    it('a duplicate-origin hero is emitted once with the LAST span (parent last-wins)', () => {
       const cells = generateCellMap(4, 4, [
         { row: 0, col: 0, rowSpan: 2, colSpan: 2 },
-        { row: 0, col: 0, rowSpan: 2, colSpan: 2 },
+        { row: 0, col: 0, rowSpan: 2, colSpan: 1 },
       ])
       expect(cells.filter((c) => c.kind === 'hero')).toHaveLength(1)
+      // Emitted hero uses the last definition's span (2×1), not the first (2×2).
+      expect(cells[0]).toEqual({ kind: 'hero', slotIndex: 0, rowSpan: 2, colSpan: 1 })
       for (const c of cells) {
         if (c.kind === 'covered') expect(Number.isInteger(c.heroSlotIndex)).toBe(true)
       }
