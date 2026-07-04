@@ -38,10 +38,10 @@ describe('generateCellMap', () => {
       expect(cells).toHaveLength(16)
       // origin is hero
       expect(cells[0]).toEqual({ kind: 'hero', slotIndex: 0, rowSpan: 2, colSpan: 2 })
-      // (0,1), (1,0), (1,1) are covered
-      expect(cells[1]).toEqual({ kind: 'covered' })
-      expect(cells[4]).toEqual({ kind: 'covered' })
-      expect(cells[5]).toEqual({ kind: 'covered' })
+      // (0,1), (1,0), (1,1) are covered, all pointing back at the hero (slotIndex 0)
+      expect(cells[1]).toEqual({ kind: 'covered', heroSlotIndex: 0 })
+      expect(cells[4]).toEqual({ kind: 'covered', heroSlotIndex: 0 })
+      expect(cells[5]).toEqual({ kind: 'covered', heroSlotIndex: 0 })
       // (0,2) is the next slot
       expect(cells[2]).toEqual({ kind: 'slot', slotIndex: 1 })
     })
@@ -64,9 +64,9 @@ describe('generateCellMap', () => {
       expect(cells).toHaveLength(16)
       expect(cells[0]).toEqual({ kind: 'hero', slotIndex: 0, rowSpan: 2, colSpan: 1 })
       expect(cells[1]).toEqual({ kind: 'hero', slotIndex: 1, rowSpan: 2, colSpan: 1 })
-      // (1,0) and (1,1) are covered
-      expect(cells[4]).toEqual({ kind: 'covered' })
-      expect(cells[5]).toEqual({ kind: 'covered' })
+      // (1,0) is covered by the first hero (slotIndex 0), (1,1) by the second (slotIndex 1)
+      expect(cells[4]).toEqual({ kind: 'covered', heroSlotIndex: 0 })
+      expect(cells[5]).toEqual({ kind: 'covered', heroSlotIndex: 1 })
       // (0,2) is slot slotIndex 2
       expect(cells[2]).toEqual({ kind: 'slot', slotIndex: 2 })
     })
@@ -78,6 +78,48 @@ describe('generateCellMap', () => {
     it('length is still rows × cols with heroConfig', () => {
       const cells = generateCellMap(4, 4, [{ row: 0, col: 0, rowSpan: 2, colSpan: 2 }])
       expect(cells).toHaveLength(16)
+    })
+  })
+
+  describe('covered back-pointer (heroSlotIndex)', () => {
+    it('every covered cell points at the slotIndex of its covering hero', () => {
+      // 3×2 hero (rowSpan 3, colSpan 2) at (0,0) in a 4×4 grid.
+      const cells = generateCellMap(4, 4, [{ row: 0, col: 0, rowSpan: 3, colSpan: 2 }])
+      // origin at (0,0) is the hero
+      expect(cells[0]).toEqual({ kind: 'hero', slotIndex: 0, rowSpan: 3, colSpan: 2 })
+      // all covered positions inside the span carry heroSlotIndex 0
+      const coveredKeys = [1, 4, 5, 8, 9] // (0,1),(1,0),(1,1),(2,0),(2,1)
+      for (const k of coveredKeys) {
+        expect(cells[k]).toEqual({ kind: 'covered', heroSlotIndex: 0 })
+      }
+    })
+
+    it('a hero not anchored at the grid origin still back-points correctly', () => {
+      // 2×2 hero at (1,1) in a 4×4 grid. Slot indices run row-major, skipping covered.
+      const cells = generateCellMap(4, 4, [{ row: 1, col: 1, rowSpan: 2, colSpan: 2 }])
+      // (1,1) is the hero origin — find its slotIndex, then verify covered cells match.
+      const heroCell = cells[1 * 4 + 1]
+      expect(heroCell.kind).toBe('hero')
+      const heroSlotIndex = (heroCell as { slotIndex: number }).slotIndex
+      // covered positions: (1,2),(2,1),(2,2)
+      for (const [r, c] of [[1, 2], [2, 1], [2, 2]] as const) {
+        expect(cells[r * 4 + c]).toEqual({ kind: 'covered', heroSlotIndex })
+      }
+    })
+
+    it('two heroes: each covered cell points at its own hero', () => {
+      // partner preset, two 2×1 heroes side by side
+      const cells = generateCellMap(4, 4, [
+        { row: 0, col: 0, rowSpan: 2, colSpan: 1 },
+        { row: 0, col: 1, rowSpan: 2, colSpan: 1 },
+      ])
+      expect(cells[4]).toEqual({ kind: 'covered', heroSlotIndex: 0 }) // (1,0) → hero 0
+      expect(cells[5]).toEqual({ kind: 'covered', heroSlotIndex: 1 }) // (1,1) → hero 1
+    })
+
+    it('no covered cells exist in uniform mode', () => {
+      const cells = generateCellMap(4, 4)
+      expect(cells.some((c) => c.kind === 'covered')).toBe(false)
     })
   })
 })

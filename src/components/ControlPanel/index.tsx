@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import type { Chart, Slot, NumericStyleField, NameDisplayMode, DisplayMode, HeroConfig } from '@/types/chart'
 import type { SortKey } from '@/utils/sort'
 import { ALLOWED_TITLE_FONTS } from '@/utils/shareLink'
+import { isMultiFaceLayout } from '@/utils/scryfall'
 import {
   supportsClipboardImage,
   supportsFileShare,
@@ -51,6 +52,9 @@ interface Props {
   onScaleChange: (s: ExportScale) => void
   onExport: () => void
   selectedSlot: Slot | null
+  onSelectedRemove: () => void
+  onSelectedFlip: () => void
+  onSelectedSwitchPrinting: () => void
   onCropDragBegin: () => void
   onCropLive: (crop: CropValues) => void
   onCropChange: (crop: CropValues) => void
@@ -64,6 +68,69 @@ interface Props {
   onShareLink: () => Promise<void>
   mobileOpen?: boolean
 }
+
+// A radiogroup that is one tab stop with standard arrow-key roving: the checked
+// radio is tabbable (tabIndex 0), the rest are -1; Arrow/Home/End move the
+// selection (and focus) within the group. Selecting a radio also fires onChange,
+// matching native radio semantics where focus and checked move together.
+function SegmentedControl<T extends string | number>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  value: T
+  options: ReadonlyArray<{ value: T; label: string }>
+  onChange: (v: T) => void
+}) {
+  const groupRef = useRef<HTMLDivElement>(null)
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    const idx = options.findIndex((o) => o.value === value)
+    let next: number | null = null
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (idx + 1) % options.length
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (idx - 1 + options.length) % options.length
+    else if (e.key === 'Home') next = 0
+    else if (e.key === 'End') next = options.length - 1
+    if (next === null || next === idx) {
+      if (next !== null) e.preventDefault()
+      return
+    }
+    e.preventDefault()
+    onChange(options[next].value)
+    groupRef.current?.querySelectorAll<HTMLButtonElement>('[role="radio"]')[next]?.focus()
+  }
+
+  return (
+    <div
+      ref={groupRef}
+      className={styles.segmented}
+      role="radiogroup"
+      aria-label={label}
+      onKeyDown={handleKeyDown}
+    >
+      {options.map((o) => {
+        const active = o.value === value
+        return (
+          <button
+            key={String(o.value)}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            tabIndex={active ? 0 : -1}
+            className={`${styles.segBtn}${active ? ` ${styles.segBtnActive}` : ''}`}
+            onClick={() => onChange(o.value)}
+          >
+            {o.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 function ChartPicker({
   charts,
@@ -347,6 +414,9 @@ export default function ControlPanel({
   onScaleChange,
   onExport,
   selectedSlot,
+  onSelectedRemove,
+  onSelectedFlip,
+  onSelectedSwitchPrinting,
   onCropDragBegin,
   onCropLive,
   onCropChange,
@@ -456,7 +526,46 @@ export default function ControlPanel({
 
         {selectedSlot && (
           <section className={styles.section}>
-            <h2 className={styles.sectionLabel}>Crop — {selectedSlot.kind === 'scryfall' ? selectedSlot.cardName : selectedSlot.label}</h2>
+            <h2 className={styles.sectionLabel}>Selected card</h2>
+            <p className={styles.selectedName}>
+              {selectedSlot.kind === 'scryfall' ? selectedSlot.cardName : selectedSlot.label}
+            </p>
+            {/* Canonical, always-visible action surface — the keyboard/touch home
+                for actions that otherwise live only on hover buttons or right-click. */}
+            <div className={styles.selectedActions}>
+              <button
+                type="button"
+                className={`${styles.selectedActionBtn} ${styles.selectedActionBtnDanger}`}
+                onClick={onSelectedRemove}
+              >
+                Remove
+              </button>
+              {selectedSlot.kind === 'scryfall' &&
+                isMultiFaceLayout(selectedSlot.layout) &&
+                selectedSlot.imageUris.length > 1 && (
+                <button type="button" className={styles.selectedActionBtn} onClick={onSelectedFlip}>
+                  Flip
+                </button>
+              )}
+              {selectedSlot.kind === 'scryfall' && (
+                <button
+                  type="button"
+                  className={styles.selectedActionBtn}
+                  onClick={onSelectedSwitchPrinting}
+                >
+                  Switch printing
+                </button>
+              )}
+              {/* Move is a keyboard/pointer gesture landing in Phase 3. */}
+              <button
+                type="button"
+                className={styles.selectedActionBtn}
+                disabled
+                title="Card movement arrives in a later update"
+              >
+                Move
+              </button>
+            </div>
             <CropEditor
               slot={selectedSlot}
               displayMode={chart.displayMode}
@@ -471,23 +580,12 @@ export default function ControlPanel({
           <h2 className={styles.sectionLabel}>Grid</h2>
           <div className={styles.row}>
             <span className={styles.label}>Layout</span>
-            <div className={styles.segmented} role="radiogroup" aria-label="Layout mode">
-              {(['uniform', 'commander', 'partner'] as const).map((mode) => {
-                const active = getLayoutMode(chart.heroConfig) === mode
-                return (
-                  <button
-                    key={mode}
-                    type="button"
-                    role="radio"
-                    aria-checked={active}
-                    className={`${styles.segBtn}${active ? ` ${styles.segBtnActive}` : ''}`}
-                    onClick={() => onLayoutModeChange(mode)}
-                  >
-                    {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                  </button>
-                )
-              })}
-            </div>
+            <SegmentedControl
+              label="Layout mode"
+              value={getLayoutMode(chart.heroConfig)}
+              options={(['uniform', 'commander', 'partner'] as const).map((m) => ({ value: m, label: cap(m) }))}
+              onChange={onLayoutModeChange}
+            />
           </div>
           <div className={styles.row}>
             <span className={styles.label}>Width</span>
@@ -529,20 +627,12 @@ export default function ControlPanel({
           <h2 className={styles.sectionLabel}>Style</h2>
           <div className={styles.row}>
             <span className={styles.label}>Mode</span>
-            <div className={styles.segmented} role="radiogroup" aria-label="Display mode">
-              {(['landscape', 'square'] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  role="radio"
-                  aria-checked={chart.displayMode === mode}
-                  className={`${styles.segBtn}${chart.displayMode === mode ? ` ${styles.segBtnActive}` : ''}`}
-                  onClick={() => onDisplayModeChange(mode)}
-                >
-                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                </button>
-              ))}
-            </div>
+            <SegmentedControl
+              label="Display mode"
+              value={chart.displayMode}
+              options={(['landscape', 'square'] as const).map((m) => ({ value: m, label: cap(m) }))}
+              onChange={onDisplayModeChange}
+            />
           </div>
           <div className={styles.row}>
             <span className={styles.label}>Background</span>
@@ -629,20 +719,12 @@ export default function ControlPanel({
 
         <section className={styles.section}>
           <h2 className={styles.sectionLabel}>Names</h2>
-          <div className={styles.segmented} role="radiogroup" aria-label="Name display mode">
-            {(['none', 'overlay', 'sidebar'] as const).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                role="radio"
-                aria-checked={chart.nameDisplayMode === mode}
-                className={`${styles.segBtn}${chart.nameDisplayMode === mode ? ` ${styles.segBtnActive}` : ''}`}
-                onClick={() => onNameDisplayChange(mode)}
-              >
-                {mode.charAt(0).toUpperCase() + mode.slice(1)}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            label="Name display mode"
+            value={chart.nameDisplayMode}
+            options={(['none', 'overlay', 'sidebar'] as const).map((m) => ({ value: m, label: cap(m) }))}
+            onChange={onNameDisplayChange}
+          />
         </section>
 
         <section className={styles.section}>
@@ -738,20 +820,12 @@ export default function ControlPanel({
         )}
         <div className={styles.scaleRow}>
           <span className={styles.label}>Scale</span>
-          <div className={styles.segmented} role="radiogroup" aria-label="Export scale">
-            {([1, 2] as const).map((s) => (
-              <button
-                key={s}
-                type="button"
-                role="radio"
-                aria-checked={exportScale === s}
-                className={`${styles.segBtn}${exportScale === s ? ` ${styles.segBtnActive}` : ''}`}
-                onClick={() => onScaleChange(s)}
-              >
-                {s}×
-              </button>
-            ))}
-          </div>
+          <SegmentedControl<ExportScale>
+            label="Export scale"
+            value={exportScale}
+            options={[{ value: 1, label: '1×' }, { value: 2, label: '2×' }]}
+            onChange={onScaleChange}
+          />
         </div>
         <div className={styles.actionRow}>
           <button

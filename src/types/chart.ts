@@ -59,6 +59,9 @@ export interface Chart {
 export type CellDef =
   | { kind: 'slot'; slotIndex: number }
   | { kind: 'hero'; slotIndex: number; rowSpan: number; colSpan: number }
-  | { kind: 'covered' }
+  // heroSlotIndex is a back-pointer to the hero that covers this position, so
+  // keyboard navigation and drop-targeting can resolve a covered cell to its
+  // hero. Derived at render (never persisted) — no schema impact.
+  | { kind: 'covered'; heroSlotIndex: number }
 
 export type CellMap = CellDef[]
