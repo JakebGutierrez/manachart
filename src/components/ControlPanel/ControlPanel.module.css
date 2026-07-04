@@ -452,6 +452,9 @@
   cursor: crosshair;
   user-select: none;
   margin-bottom: 8px;
+  /* Crop repositioning owns the touch gesture — without this the panel scrolls
+     instead and the browser cancels the pointer stream mid-drag. */
+  touch-action: none;
 }
 
 .cropPreviewImg {

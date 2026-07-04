@@ -53,6 +53,19 @@ input {
   font: inherit;
 }
 
+/* ── Reduced motion ───────────────────────────────────────────────────────── */
+
+/* Interim global sweep: stills the drawer slide and the short opacity/colour
+   fades (the app's only motion is transitions — no keyframe animations).
+   Phase 5 replaces this with token-driven durations zeroed at :root. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* ── Notification banners ─────────────────────────────────────────────────── */
 
 .notifBanner {

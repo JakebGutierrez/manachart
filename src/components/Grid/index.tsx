@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback, useRef, useEffect, type RefObject, type ReactNode } from 'react'
+import { useMemo, useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
 import type { Chart, Slot } from '@/types/chart'
 import { generateCellMap } from '@/utils/cellMap'
 import { getSlot } from '@/utils/chart'
@@ -17,7 +17,6 @@ interface Props {
   onFaceToggle: (slotIndex: number) => void
   selectedSlotIndex: number | null
   onCellSelect: (slotIndex: number | null) => void
-  gridRef: RefObject<HTMLDivElement | null>
   notifications?: ReactNode
 }
 
@@ -30,7 +29,6 @@ export default function GridArea({
   onFaceToggle,
   selectedSlotIndex,
   onCellSelect,
-  gridRef,
   notifications,
 }: Props) {
   const cellMap = useMemo(
@@ -118,7 +116,6 @@ export default function GridArea({
           style={{ gap: chart.nameDisplayMode === 'sidebar' ? 16 : undefined }}
         >
           <div
-            ref={gridRef}
             className={styles.grid}
             onClick={(e) => { if (e.target === e.currentTarget) onCellSelect(null) }}
             style={{
