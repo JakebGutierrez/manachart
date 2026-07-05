@@ -375,3 +375,144 @@ describe('keyboard grab & move', () => {
     unmount()
   })
 })
+
+// Commander layout: a 2×2 hero at (0,0) in a 3×3 grid. slotIndex 0 is the hero;
+// the three positions it covers render NO DOM node, so a drop anywhere in the
+// hero's footprint resolves to the hero's slotIndex.
+function seedCommander(slots: Array<Slot | null>) {
+  const chart: Chart = {
+    ...makeChart([]),
+    gridRows: 3, gridCols: 3, layout: 'hybrid',
+    heroConfig: [{ row: 0, col: 0, rowSpan: 2, colSpan: 2 }],
+    slots,
+  }
+  store.set('mtg-chart:charts', JSON.stringify([chart]))
+  store.set('mtg-chart:activeId', 'a')
+}
+
+describe('drop-target resolution over a hero', () => {
+  it('a drop over the hero (covering its covered cells) commits to the hero slot', () => {
+    // slot 0 = hero (empty); slot 1 = a normal cell holding Bolt.
+    seedCommander([null, makeSlot('Bolt'), null, null, null, null])
+    const { container, unmount } = renderComponent(<App />)
+
+    // Covered positions render no data-slot-index node: hero + 5 slots = 6, not 9.
+    expect(container.querySelectorAll('[data-slot-index]')).toHaveLength(6)
+
+    const source = cell(container, 1)
+    const hero = cell(container, 0)
+    hitTest(hero) // release anywhere in the hero footprint resolves to the hero
+
+    pointer(source, 'pointerdown', 0, 0)
+    pointer(window, 'pointermove', 30, 0)
+    pointer(window, 'pointerup', 5, 5)
+
+    // Bolt moved into the hero slot (index 0).
+    expect(nameOf(cell(container, 0))).toBe('Bolt, row 1 column 1')
+    expect(nameOf(cell(container, 1))).toBe('Empty, row 1 column 3')
+    unmount()
+  })
+})
+
+describe('touch long-press gesture', () => {
+  it('a still-finger long-press arms a drag, then commits on release', () => {
+    vi.useFakeTimers()
+    try {
+      seedChart([makeSlot('Bolt'), makeSlot('Path'), null, null])
+      const { container, unmount } = renderComponent(<App />)
+      const c0 = cell(container, 0)
+      stubCapture(c0)
+      hitTest(cell(container, 1))
+
+      pointer(c0, 'pointerdown', 0, 0, { pointerType: 'touch' })
+      // Before the timer: no drag armed (no ghost).
+      expect(document.querySelector('[aria-hidden="true"] img')).toBeNull()
+
+      act(() => { vi.advanceTimersByTime(400) })
+      // Armed: the drag ghost is now present.
+      expect(document.querySelector('[aria-hidden="true"] img')).not.toBeNull()
+
+      pointer(window, 'pointermove', 5, 0, { pointerType: 'touch' })
+      pointer(window, 'pointerup', 5, 0, { pointerType: 'touch' })
+
+      expect(nameOf(cell(container, 0))).toBe('Path, row 1 column 1')
+      expect(nameOf(cell(container, 1))).toBe('Bolt, row 1 column 2')
+      unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a finger swipe before the long-press does not arm (scroll wins)', () => {
+    vi.useFakeTimers()
+    try {
+      seedChart([makeSlot('Bolt'), makeSlot('Path'), null, null])
+      const { container, unmount } = renderComponent(<App />)
+      const c0 = cell(container, 0)
+      hitTest(cell(container, 1))
+
+      pointer(c0, 'pointerdown', 0, 0, { pointerType: 'touch' })
+      pointer(window, 'pointermove', 40, 0, { pointerType: 'touch' }) // past touch slop, pre-timer
+      act(() => { vi.advanceTimersByTime(400) }) // timer was cleared — no arm
+
+      expect(document.querySelector('[aria-hidden="true"] img')).toBeNull()
+      pointer(window, 'pointerup', 40, 0, { pointerType: 'touch' })
+      // Nothing moved — the swipe was a scroll.
+      expect(nameOf(cell(container, 0))).toBe('Bolt, row 1 column 1')
+      expect(nameOf(cell(container, 1))).toBe('Path, row 1 column 2')
+      unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('attaches a non-passive touchmove suppressor on arm and removes it on release', () => {
+    vi.useFakeTimers()
+    const addSpy = vi.spyOn(document, 'addEventListener')
+    const removeSpy = vi.spyOn(document, 'removeEventListener')
+    try {
+      seedChart([makeSlot('Bolt'), makeSlot('Path'), null, null])
+      const { container, unmount } = renderComponent(<App />)
+      const c0 = cell(container, 0)
+      stubCapture(c0)
+      hitTest(cell(container, 1))
+
+      pointer(c0, 'pointerdown', 0, 0, { pointerType: 'touch' })
+      // Not attached before arm.
+      expect(addSpy.mock.calls.some(([t]) => t === 'touchmove')).toBe(false)
+
+      act(() => { vi.advanceTimersByTime(400) })
+      // Attached on arm, explicitly non-passive.
+      const added = addSpy.mock.calls.find(([t]) => t === 'touchmove')
+      expect(added).toBeTruthy()
+      expect((added![2] as AddEventListenerOptions).passive).toBe(false)
+
+      pointer(window, 'pointerup', 5, 0, { pointerType: 'touch' })
+      // Removed on release — never left standing.
+      expect(removeSpy.mock.calls.some(([t]) => t === 'touchmove')).toBe(true)
+      unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a quick tap (release before the long-press) arms nothing and leaves no timer', () => {
+    vi.useFakeTimers()
+    try {
+      seedChart([makeSlot('Bolt'), makeSlot('Path'), null, null])
+      const { container, unmount } = renderComponent(<App />)
+      const c0 = cell(container, 0)
+      hitTest(cell(container, 1))
+
+      pointer(c0, 'pointerdown', 0, 0, { pointerType: 'touch' })
+      pointer(window, 'pointerup', 0, 0, { pointerType: 'touch' }) // released before 400ms
+      act(() => { vi.advanceTimersByTime(400) }) // stale timer must not arm
+
+      expect(document.querySelector('[aria-hidden="true"] img')).toBeNull()
+      expect(nameOf(cell(container, 0))).toBe('Bolt, row 1 column 1')
+      unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

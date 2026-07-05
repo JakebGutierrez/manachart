@@ -222,9 +222,14 @@
   cursor: grab;
 }
 
-/* The card being dragged or armed for a keyboard/tap move — dimmed at its origin. */
+/* The card being dragged or armed for a keyboard/tap move — its origin recedes
+   (dim + slight scale-down) as the card "lifts" onto the drag ghost. On touch
+   this scale is the required arming cue: it signals the long-press fired and page
+   scroll is now suspended for the gesture. */
 .cellMoving {
   opacity: 0.4;
+  transform: scale(0.94);
+  transition: transform 0.12s ease, opacity 0.12s ease;
 }
 
 /* The current drop destination (pointer drag hover, or armed-move cursor). */
