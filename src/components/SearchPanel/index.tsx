@@ -3,14 +3,17 @@ import type { Chart, Slot, CustomSlot } from '@/types/chart'
 import { useScryfall } from '@/hooks/useScryfall'
 import { getSlot } from '@/utils/chart'
 import { generateCellMap } from '@/utils/cellMap'
+import { usePointerDrag } from '@/interaction/usePointerDrag'
+import type { SearchDragApi } from '@/interaction/moveApi'
 import styles from './SearchPanel.module.css'
 
 interface Props {
   chart: Chart
   onSlotFill: (slot: Slot) => void
+  searchDrag: SearchDragApi
 }
 
-export default function SearchPanel({ chart, onSlotFill }: Props) {
+export default function SearchPanel({ chart, onSlotFill, searchDrag }: Props) {
   const [query, setQuery] = useState('')
   const { results, isLoading, error } = useScryfall(query)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -50,6 +53,23 @@ export default function SearchPanel({ chart, onSlotFill }: Props) {
   )
   const fillableCells = useMemo(() => cellMap.filter((c) => c.kind !== 'covered'), [cellMap])
   const isFull = fillableCells.every((c) => getSlot(chart, c.slotIndex) !== null)
+
+  // Results are pointer-drag sources onto the grid (desktop accelerator). The
+  // dragged Slot is carried in React state via the move machine — no dataTransfer
+  // JSON round-trip. Tap-to-fill (the button below) remains the everywhere path.
+  // usePointerDrag refreshes its callbacks each render, so getContext reads the
+  // current `results` closure directly (no ref needed).
+  const resultPointerDown = usePointerDrag<Slot>({
+    getContext: (e) => {
+      const el = (e.target as HTMLElement).closest<HTMLElement>('[data-search-index]')
+      if (!el) return null
+      const idx = Number(el.dataset.searchIndex)
+      return Number.isInteger(idx) ? results[idx] ?? null : null
+    },
+    onStart: (slot) => searchDrag.beginSearchDrag(slot),
+    onMove: (_slot, x, y) => searchDrag.dragMove(x, y),
+    onEnd: (_slot, committed) => searchDrag.dragEnd(committed),
+  })
 
   return (
     <div className={styles.container}>
@@ -91,14 +111,11 @@ export default function SearchPanel({ chart, onSlotFill }: Props) {
 
       {!isLoading && !error && results.length > 0 && (
         <ul className={styles.results} role="list">
-          {results.map((result) => (
+          {results.map((result, index) => (
             <li
               key={result.scryfallId}
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.setData('application/x-mtg-search-result', JSON.stringify(result))
-                e.dataTransfer.effectAllowed = 'copy'
-              }}
+              data-search-index={index}
+              onPointerDown={resultPointerDown}
             >
               <button
                 className={styles.resultBtn}

@@ -687,3 +687,9 @@
   opacity: 0.3;
   cursor: default;
 }
+
+.selectedActionBtnActive {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}

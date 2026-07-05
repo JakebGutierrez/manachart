@@ -19,6 +19,7 @@ function getLayoutMode(heroConfig: HeroConfig): LayoutMode {
   return 'commander'
 }
 import type { ExportScale } from '@/hooks/useExport'
+import type { SearchDragApi } from '@/interaction/moveApi'
 import SearchPanel from '@/components/SearchPanel'
 import Stepper from '@/components/Stepper'
 import styles from './ControlPanel.module.css'
@@ -55,6 +56,9 @@ interface Props {
   onSelectedRemove: () => void
   onSelectedFlip: () => void
   onSelectedSwitchPrinting: () => void
+  onArmMove: () => void
+  moveArmed: boolean
+  searchDrag: SearchDragApi
   onCropDragBegin: () => void
   onCropLive: (crop: CropValues) => void
   onCropChange: (crop: CropValues) => void
@@ -441,6 +445,9 @@ export default function ControlPanel({
   onSelectedRemove,
   onSelectedFlip,
   onSelectedSwitchPrinting,
+  onArmMove,
+  moveArmed,
+  searchDrag,
   onCropDragBegin,
   onCropLive,
   onCropChange,
@@ -545,7 +552,7 @@ export default function ControlPanel({
               Import decklist
             </button>
           </div>
-          <SearchPanel chart={chart} onSlotFill={onSlotFill} />
+          <SearchPanel chart={chart} onSlotFill={onSlotFill} searchDrag={searchDrag} />
         </section>
 
         {selectedSlot && (
@@ -580,14 +587,15 @@ export default function ControlPanel({
                   Switch printing
                 </button>
               )}
-              {/* Move is a keyboard/pointer gesture landing in Phase 3. */}
+              {/* Arms move mode: then arrow+Enter (keyboard) or tap a target cell
+                  (pointer) to drop. Toggles off / cancels when already armed. */}
               <button
                 type="button"
-                className={styles.selectedActionBtn}
-                disabled
-                title="Card movement arrives in a later update"
+                className={`${styles.selectedActionBtn}${moveArmed ? ` ${styles.selectedActionBtnActive}` : ''}`}
+                aria-pressed={moveArmed}
+                onClick={onArmMove}
               >
-                Move
+                {moveArmed ? 'Cancel move' : 'Move'}
               </button>
             </div>
             <CropEditor

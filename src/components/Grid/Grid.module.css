@@ -217,11 +217,18 @@
   opacity: 1;
 }
 
-.cell[draggable='true'] {
+/* Filled cells are pointer-drag sources. */
+.cell:has(> .cardImg) {
   cursor: grab;
 }
 
-.cellDragOver {
-  outline: 2px solid var(--accent);
+/* The card being dragged or armed for a keyboard/tap move — dimmed at its origin. */
+.cellMoving {
+  opacity: 0.4;
+}
+
+/* The current drop destination (pointer drag hover, or armed-move cursor). */
+.cellDropTarget {
+  outline: 2px dashed var(--accent);
   outline-offset: -2px;
 }
