@@ -48,6 +48,9 @@ export function usePointerDrag<T>(callbacks: PointerDragCallbacks<T>): (e: React
   const moveRef = useRef<((e: PointerEvent) => void) | null>(null)
   const upRef = useRef<((e: PointerEvent) => void) | null>(null)
   const keyRef = useRef<((e: KeyboardEvent) => void) | null>(null)
+  // The element+pointer we called setPointerCapture on, or null if capture was
+  // never taken (a sub-slop press that never armed, or a jsdom/throwing capture).
+  const captureRef = useRef<{ el: Element; pointerId: number } | null>(null)
 
   const teardown = useCallback(() => {
     if (moveRef.current) window.removeEventListener('pointermove', moveRef.current)
@@ -56,6 +59,20 @@ export function usePointerDrag<T>(callbacks: PointerDragCallbacks<T>): (e: React
       window.removeEventListener('pointercancel', upRef.current)
     }
     if (keyRef.current) window.removeEventListener('keydown', keyRef.current)
+    // Release capture on EVERY terminal path (commit, Escape, pointercancel,
+    // unmount). Cleared first so a second teardown can't double-release, and only
+    // attempted when capture was actually taken. releasePointerCapture legitimately
+    // throws if the pointer is already up / capture already gone — same throw-safe
+    // pattern as the acquire.
+    const cap = captureRef.current
+    captureRef.current = null
+    if (cap) {
+      try {
+        ;(cap.el as Element & { releasePointerCapture(id: number): void }).releasePointerCapture(cap.pointerId)
+      } catch {
+        /* ignore */
+      }
+    }
     moveRef.current = null
     upRef.current = null
     keyRef.current = null
@@ -86,14 +103,9 @@ export function usePointerDrag<T>(callbacks: PointerDragCallbacks<T>): (e: React
         context,
       }
       activeRef.current = active
-
-      // Capture keeps moves flowing if the pointer leaves the source element. It
-      // throws if the pointer is already up, and jsdom's impl is partial — ignore.
-      try {
-        ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-      } catch {
-        /* ignore */
-      }
+      // Snapshot the source element now — React nulls currentTarget after this
+      // handler returns, but capture is only taken once a drag actually arms.
+      const sourceEl = e.currentTarget as HTMLElement
 
       const slop = cbRef.current.slop ?? DEFAULT_SLOP_PX
 
@@ -105,6 +117,16 @@ export function usePointerDrag<T>(callbacks: PointerDragCallbacks<T>): (e: React
         if (!a.started) {
           if (Math.hypot(ev.clientX - a.startX, ev.clientY - a.startY) < slop) return
           a.started = true
+          // Capture on arm (not on the initial press) so a sub-slop tap never
+          // takes capture, and moves keep flowing if the pointer leaves the
+          // source element. Throws if the pointer is already up / jsdom is
+          // partial — ignore, and only record capture when it actually succeeds.
+          try {
+            sourceEl.setPointerCapture(a.pointerId)
+            captureRef.current = { el: sourceEl, pointerId: a.pointerId }
+          } catch {
+            /* ignore */
+          }
           cbRef.current.onStart(a.context)
         }
         cbRef.current.onMove(a.context, ev.clientX, ev.clientY)
@@ -144,6 +166,11 @@ export function usePointerDrag<T>(callbacks: PointerDragCallbacks<T>): (e: React
       window.addEventListener('pointermove', onMove)
       window.addEventListener('pointerup', onUp)
       window.addEventListener('pointercancel', onUp)
+      // Registered at pointerdown (not at arm) by design: finish() only fires
+      // onEnd when the drag has `started`, so Escape before arm dispatches no
+      // machine transition (it just drops the pending press) — inert at the
+      // machine level. Registering once here avoids add/remove churn as the drag
+      // arms, with no observable difference before arm.
       window.addEventListener('keydown', onKeyDown)
     },
     [teardown],

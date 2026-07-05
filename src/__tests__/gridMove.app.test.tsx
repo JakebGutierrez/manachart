@@ -80,6 +80,15 @@ function hitTest(el: Element | null) {
     () => el
 }
 
+// jsdom's pointer-capture methods throw/are partial; install spies so the engine
+// can actually take capture and we can assert it is released on teardown.
+function stubCapture(el: Element) {
+  const setCap = vi.fn()
+  const relCap = vi.fn()
+  Object.assign(el, { setPointerCapture: setCap, releasePointerCapture: relCap })
+  return { setCap, relCap }
+}
+
 beforeEach(() => {
   store.clear()
   vi.stubGlobal('localStorage', localStorageStub)
@@ -212,6 +221,60 @@ describe('pointer drag movement (mouse)', () => {
     expect(document.querySelector('[aria-hidden="true"] img')).toBeNull()
     // undo is unavailable — nothing was committed
     expect(byAriaLabel<HTMLButtonElement>(container, 'Undo').disabled).toBe(true)
+    unmount()
+  })
+
+  it('Escape mid-drag releases pointer capture and returns to idle', () => {
+    seedChart([makeSlot('Bolt'), makeSlot('Path'), null, null])
+    const { container, unmount } = renderComponent(<App />)
+    const c0 = cell(container, 0)
+    const { setCap, relCap } = stubCapture(c0)
+    hitTest(cell(container, 1))
+
+    pointer(c0, 'pointerdown', 0, 0)
+    pointer(window, 'pointermove', 30, 0) // arm → capture taken here
+    expect(setCap).toHaveBeenCalledWith(1)
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+
+    expect(relCap).toHaveBeenCalledWith(1) // released on the cancel path
+    expect(nameOf(cell(container, 0))).toBe('Bolt, row 1 column 1') // idle, no mutation
+    expect(document.querySelector('[aria-hidden="true"] img')).toBeNull()
+    unmount()
+  })
+
+  it('a normal commit releases pointer capture', () => {
+    seedChart([makeSlot('Bolt'), makeSlot('Path'), null, null])
+    const { container, unmount } = renderComponent(<App />)
+    const c0 = cell(container, 0)
+    const { setCap, relCap } = stubCapture(c0)
+    hitTest(cell(container, 1))
+
+    pointer(c0, 'pointerdown', 0, 0)
+    pointer(window, 'pointermove', 30, 0)
+    pointer(window, 'pointerup', 100, 0)
+
+    expect(setCap).toHaveBeenCalledTimes(1)
+    expect(relCap).toHaveBeenCalledWith(1)
+    expect(nameOf(cell(container, 0))).toBe('Path, row 1 column 1') // move committed
+    unmount()
+  })
+
+  it('a sub-slop press-release never takes or releases capture', () => {
+    seedChart([makeSlot('Bolt'), makeSlot('Path'), null, null])
+    const { container, unmount } = renderComponent(<App />)
+    const c0 = cell(container, 0)
+    const { setCap, relCap } = stubCapture(c0)
+    hitTest(cell(container, 1))
+
+    pointer(c0, 'pointerdown', 0, 0)
+    pointer(window, 'pointermove', 2, 0) // under slop → never arms
+    pointer(window, 'pointerup', 2, 0)
+
+    expect(setCap).not.toHaveBeenCalled()
+    expect(relCap).not.toHaveBeenCalled()
     unmount()
   })
 
