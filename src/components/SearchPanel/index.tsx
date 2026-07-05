@@ -59,6 +59,10 @@ export default function SearchPanel({ chart, onSlotFill, searchDrag }: Props) {
   // JSON round-trip. Tap-to-fill (the button below) remains the everywhere path.
   // usePointerDrag refreshes its callbacks each render, so getContext reads the
   // current `results` closure directly (no ref needed).
+  // Suppress the synthetic click that follows a completed drag so a drag can't
+  // also fire tap-to-fill (double fill / double history entry). Same guard Grid
+  // uses; cleared on a microtask so an off-target drag can't leave it stuck.
+  const suppressClickRef = useRef(false)
   const resultPointerDown = usePointerDrag<Slot>({
     getContext: (e) => {
       const el = (e.target as HTMLElement).closest<HTMLElement>('[data-search-index]')
@@ -68,8 +72,21 @@ export default function SearchPanel({ chart, onSlotFill, searchDrag }: Props) {
     },
     onStart: (slot) => searchDrag.beginSearchDrag(slot),
     onMove: (_slot, x, y) => searchDrag.dragMove(x, y),
-    onEnd: (_slot, committed) => searchDrag.dragEnd(committed),
+    onEnd: (_slot, committed, x, y) => {
+      searchDrag.dragEnd(committed, x, y)
+      suppressClickRef.current = true
+      setTimeout(() => { suppressClickRef.current = false }, 0)
+    },
   })
+
+  // Tap-to-fill (skips the click that trails a drag; no-op when the grid is full).
+  const handleResultClick = (result: Slot) => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false
+      return
+    }
+    if (!isFull) onSlotFill(result)
+  }
 
   return (
     <div className={styles.container}>
@@ -118,10 +135,14 @@ export default function SearchPanel({ chart, onSlotFill, searchDrag }: Props) {
               onPointerDown={resultPointerDown}
             >
               <button
-                className={styles.resultBtn}
+                className={`${styles.resultBtn}${isFull ? ` ${styles.resultBtnFull}` : ''}`}
                 type="button"
-                disabled={isFull}
-                onClick={() => onSlotFill(result)}
+                // NOT `disabled`: a disabled button swallows pointer events, which
+                // would kill the drag-to-replace source on the <li> when the grid
+                // is full. aria-disabled + a dimmed style preserve the affordance
+                // while keeping the element interactive for pointer drags.
+                aria-disabled={isFull}
+                onClick={() => handleResultClick(result)}
               >
                 <img
                   className={styles.thumb}

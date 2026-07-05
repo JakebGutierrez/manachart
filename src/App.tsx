@@ -514,10 +514,19 @@ function App() {
   useLayoutEffect(() => { moveStateRef.current = moveState })
   useLayoutEffect(() => { dragPayloadRef.current = dragPayload })
 
-  // Ghost + hit-test tracking, mutated per pointermove without a React render.
+  // Ghost tracking, mutated per pointermove without a React render.
   const ghostRef = useRef<HTMLDivElement>(null)
   const pointerPosRef = useRef({ x: 0, y: 0 })
-  const dragOverRef = useRef<number | null>(null)
+
+  // Resolve the grid cell under a pointer position to its slotIndex. Covered
+  // cells render no DOM node, so a hit resolves straight to a real slot/hero
+  // index (covered→hero) — no extra resolution needed. Off-grid → null.
+  const resolveDropTarget = useCallback((x: number, y: number): number | null => {
+    const el = document.elementFromPoint(x, y)?.closest('[data-slot-index]') as HTMLElement | null
+    if (!el) return null
+    const idx = Number(el.dataset.slotIndex)
+    return Number.isInteger(idx) ? idx : null
+  }, [])
 
   const beginCellDrag = useCallback((from: number) => {
     dispatchMove({ type: 'DRAG_START', from, source: 'cell' })
@@ -528,24 +537,15 @@ function App() {
     dispatchMove({ type: 'DRAG_START', from: -1, source: 'search' })
   }, [])
 
+  // Live hover cue only — the committed target is resolved fresh at pointerup.
   const handleDragMove = useCallback((x: number, y: number) => {
     pointerPosRef.current = { x, y }
     if (ghostRef.current) ghostRef.current.style.transform = `translate(${x}px, ${y}px)`
-    // Covered cells render no DOM node, so the hit resolves straight to a real
-    // slot/hero index — no covered→hero resolution needed at the drop site.
-    const el = document.elementFromPoint(x, y)?.closest('[data-slot-index]') as HTMLElement | null
-    let over: number | null = null
-    if (el) {
-      const idx = Number(el.dataset.slotIndex)
-      if (Number.isInteger(idx)) over = idx
-    }
-    dragOverRef.current = over
-    dispatchMove({ type: 'DRAG_OVER', over })
-  }, [])
+    dispatchMove({ type: 'DRAG_OVER', over: resolveDropTarget(x, y) })
+  }, [resolveDropTarget])
 
   const resetMove = useCallback(() => {
     resetMoveState()
-    dragOverRef.current = null
   }, [resetMoveState])
 
   // Commit a completed drag or armed move via the existing domain callbacks.
@@ -566,9 +566,12 @@ function App() {
     resetMove()
   }, [handleSlotMove, handleSlotFillAtIndex, resetMove])
 
-  const handleDragEnd = useCallback((committed: boolean) => {
-    commitMove(committed ? dragOverRef.current : null)
-  }, [commitMove])
+  // Resolve the drop target from the ACTUAL release coordinates (not a cached
+  // hover): a fast release or an off-grid release commits to exactly where the
+  // pointer was, and off-grid (null) mutates nothing.
+  const handleDragEnd = useCallback((committed: boolean, x: number, y: number) => {
+    commitMove(committed ? resolveDropTarget(x, y) : null)
+  }, [commitMove, resolveDropTarget])
 
   const grabMove = useCallback((from: number) => {
     dispatchMove({ type: 'GRAB', from })

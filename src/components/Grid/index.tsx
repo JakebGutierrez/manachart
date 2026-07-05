@@ -75,8 +75,8 @@ export default function GridArea({
     },
     onStart: (from) => move.beginCellDrag(from),
     onMove: (_from, x, y) => move.dragMove(x, y),
-    onEnd: (_from, committed) => {
-      move.dragEnd(committed)
+    onEnd: (_from, committed, x, y) => {
+      move.dragEnd(committed, x, y)
       suppressClickRef.current = true
       setTimeout(() => { suppressClickRef.current = false }, 0)
     },

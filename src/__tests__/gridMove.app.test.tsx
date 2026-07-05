@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import App from '@/App'
 import type { Chart, Slot } from '@/types/chart'
-import { renderComponent, act, click, pressKey, buttonByText } from './harness'
+import { renderComponent, act, click, pressKey, buttonByText, byAriaLabel } from './harness'
 
 const store = new Map<string, string>()
 const localStorageStub = {
@@ -55,16 +55,26 @@ function cell(container: HTMLElement, slotIndex: number): HTMLElement {
 }
 const nameOf = (c: HTMLElement) => c.getAttribute('aria-label')
 
-function pointer(target: EventTarget, type: string, x: number, y: number, pointerId = 1) {
+function pointer(
+  target: EventTarget,
+  type: string,
+  x: number,
+  y: number,
+  init: PointerEventInit = {},
+) {
   act(() => {
     target.dispatchEvent(
-      new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId }),
+      new PointerEvent(type, {
+        bubbles: true, cancelable: true, clientX: x, clientY: y,
+        pointerId: 1, isPrimary: true, button: 0, ...init,
+      }),
     )
   })
 }
 
 // jsdom has no layout, so document.elementFromPoint is undefined. Install a stub
-// that resolves the drag hit-test to a chosen element for the duration of a test.
+// resolving the drag hit-test to a chosen element; reassignable mid-drag so a
+// test can differ the transient hover target from the release target.
 function hitTest(el: Element | null) {
   ;(document as unknown as { elementFromPoint: (x: number, y: number) => Element | null }).elementFromPoint =
     () => el
@@ -142,6 +152,83 @@ describe('pointer drag movement (mouse)', () => {
     pointer(window, 'pointerup', 2, 0)
 
     expect(nameOf(cell(container, 0))).toBe('Bolt, row 1 column 1')
+    unmount()
+  })
+
+  it('commits to the release target, not a transient hover (last-over ≠ release)', () => {
+    seedChart([makeSlot('Bolt'), null, null, makeSlot('Giant')])
+    const { container, unmount } = renderComponent(<App />)
+    const c0 = cell(container, 0)
+
+    pointer(c0, 'pointerdown', 0, 0)
+    hitTest(cell(container, 1)) // transient hover over cell 1
+    pointer(window, 'pointermove', 10, 0)
+    pointer(window, 'pointermove', 50, 0)
+    hitTest(cell(container, 3)) // released over cell 3
+    pointer(window, 'pointerup', 300, 0)
+
+    // Commit landed on the release target (3), not the hovered cell (1).
+    expect(nameOf(cell(container, 0))).toBe('Giant, row 1 column 1')
+    expect(nameOf(cell(container, 1))).toBe('Empty, row 1 column 2')
+    expect(nameOf(cell(container, 3))).toBe('Bolt, row 2 column 2')
+    unmount()
+  })
+
+  it('an off-grid release after hovering a cell commits nothing', () => {
+    seedChart([makeSlot('Bolt'), makeSlot('Path'), null, null])
+    const { container, unmount } = renderComponent(<App />)
+    const c0 = cell(container, 0)
+
+    pointer(c0, 'pointerdown', 0, 0)
+    hitTest(cell(container, 1)) // hovered cell 1 during the drag
+    pointer(window, 'pointermove', 10, 0)
+    pointer(window, 'pointermove', 60, 0)
+    hitTest(document.body) // released off-grid
+    pointer(window, 'pointerup', 500, 500)
+
+    expect(nameOf(cell(container, 0))).toBe('Bolt, row 1 column 1')
+    expect(nameOf(cell(container, 1))).toBe('Path, row 1 column 2')
+    unmount()
+  })
+
+  it('Escape mid-drag cancels: no mutation, no history, ghost gone', () => {
+    seedChart([makeSlot('Bolt'), makeSlot('Path'), null, null])
+    const { container, unmount } = renderComponent(<App />)
+    const c0 = cell(container, 0)
+    hitTest(cell(container, 1))
+
+    pointer(c0, 'pointerdown', 0, 0)
+    pointer(window, 'pointermove', 30, 0) // drag in flight
+    expect(document.querySelector('[aria-hidden="true"] img')).not.toBeNull()
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+
+    // No swap, ghost gone. (A subsequent pointerup must also do nothing.)
+    pointer(window, 'pointerup', 100, 0)
+    expect(nameOf(cell(container, 0))).toBe('Bolt, row 1 column 1')
+    expect(nameOf(cell(container, 1))).toBe('Path, row 1 column 2')
+    expect(document.querySelector('[aria-hidden="true"] img')).toBeNull()
+    // undo is unavailable — nothing was committed
+    expect(byAriaLabel<HTMLButtonElement>(container, 'Undo').disabled).toBe(true)
+    unmount()
+  })
+
+  it('a right-button press does not start a drag', () => {
+    seedChart([makeSlot('Bolt'), makeSlot('Path'), null, null])
+    const { container, unmount } = renderComponent(<App />)
+    const c0 = cell(container, 0)
+    hitTest(cell(container, 1))
+
+    pointer(c0, 'pointerdown', 0, 0, { button: 2 }) // right button
+    pointer(window, 'pointermove', 40, 0)
+    pointer(window, 'pointerup', 40, 0)
+
+    // No drag began (no ghost was shown) and nothing moved.
+    expect(document.querySelector('[aria-hidden="true"] img')).toBeNull()
+    expect(nameOf(cell(container, 0))).toBe('Bolt, row 1 column 1')
+    expect(nameOf(cell(container, 1))).toBe('Path, row 1 column 2')
     unmount()
   })
 

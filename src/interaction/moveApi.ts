@@ -7,7 +7,7 @@ export interface MoveApi {
   state: MoveState
   beginCellDrag: (from: number) => void
   dragMove: (x: number, y: number) => void
-  dragEnd: (committed: boolean) => void
+  dragEnd: (committed: boolean, x: number, y: number) => void
   grab: (from: number) => void
   retarget: (over: number) => void
   commit: (to: number | null) => void
@@ -18,5 +18,5 @@ export interface MoveApi {
 export interface SearchDragApi {
   beginSearchDrag: (slot: Slot) => void
   dragMove: (x: number, y: number) => void
-  dragEnd: (committed: boolean) => void
+  dragEnd: (committed: boolean, x: number, y: number) => void
 }

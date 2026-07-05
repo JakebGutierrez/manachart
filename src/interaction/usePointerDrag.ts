@@ -8,9 +8,10 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 // nullifies a synthetic event's currentTarget after the handler returns, so the
 // consumer must snapshot what it needs up front, not in a later callback).
 //
-// Checkpoint 1 scope: mouse and pen only. Touch pointerdowns are ignored here so
-// page scrolling and tap-to-select keep working untouched; the touch gesture
-// (long-press arming + non-passive scroll suppression) is a later slice.
+// Checkpoint 1 scope: mouse and pen only, primary button only. Touch pointerdowns
+// are ignored here so page scrolling and tap-to-select keep working untouched;
+// the touch gesture (long-press arming + non-passive scroll suppression) is a
+// later slice.
 
 export interface PointerDragCallbacks<T> {
   // Snapshot the drag context from the pointerdown event (sync). Return null to
@@ -18,7 +19,10 @@ export interface PointerDragCallbacks<T> {
   getContext(e: React.PointerEvent): T | null
   onStart(context: T): void
   onMove(context: T, x: number, y: number): void
-  onEnd(context: T, committed: boolean): void
+  // committed is false for an Escape/pointercancel abort. x/y are the terminal
+  // pointer coordinates so the consumer can resolve the drop target from where
+  // the pointer actually was released, not a cached hover.
+  onEnd(context: T, committed: boolean, x: number, y: number): void
   slop?: number
 }
 
@@ -26,6 +30,8 @@ interface ActiveDrag<T> {
   pointerId: number
   startX: number
   startY: number
+  lastX: number
+  lastY: number
   started: boolean
   context: T
 }
@@ -41,6 +47,7 @@ export function usePointerDrag<T>(callbacks: PointerDragCallbacks<T>): (e: React
   const activeRef = useRef<ActiveDrag<T> | null>(null)
   const moveRef = useRef<((e: PointerEvent) => void) | null>(null)
   const upRef = useRef<((e: PointerEvent) => void) | null>(null)
+  const keyRef = useRef<((e: KeyboardEvent) => void) | null>(null)
 
   const teardown = useCallback(() => {
     if (moveRef.current) window.removeEventListener('pointermove', moveRef.current)
@@ -48,8 +55,10 @@ export function usePointerDrag<T>(callbacks: PointerDragCallbacks<T>): (e: React
       window.removeEventListener('pointerup', upRef.current)
       window.removeEventListener('pointercancel', upRef.current)
     }
+    if (keyRef.current) window.removeEventListener('keydown', keyRef.current)
     moveRef.current = null
     upRef.current = null
+    keyRef.current = null
     activeRef.current = null
   }, [])
 
@@ -61,6 +70,9 @@ export function usePointerDrag<T>(callbacks: PointerDragCallbacks<T>): (e: React
       if (activeRef.current) return
       // Mouse/pen only for now — see file header.
       if (e.pointerType === 'touch') return
+      // Primary button only: a right/middle-button press must not start a drag
+      // (and must leave the context-menu path free). Matches the old HTML5 DnD.
+      if (!e.isPrimary || e.button !== 0) return
       const context = cbRef.current.getContext(e)
       if (context === null) return
 
@@ -68,6 +80,8 @@ export function usePointerDrag<T>(callbacks: PointerDragCallbacks<T>): (e: React
         pointerId: e.pointerId,
         startX: e.clientX,
         startY: e.clientY,
+        lastX: e.clientX,
+        lastY: e.clientY,
         started: false,
         context,
       }
@@ -86,6 +100,8 @@ export function usePointerDrag<T>(callbacks: PointerDragCallbacks<T>): (e: React
       const onMove = (ev: PointerEvent) => {
         const a = activeRef.current
         if (!a || ev.pointerId !== a.pointerId) return
+        a.lastX = ev.clientX
+        a.lastY = ev.clientY
         if (!a.started) {
           if (Math.hypot(ev.clientX - a.startX, ev.clientY - a.startY) < slop) return
           a.started = true
@@ -94,24 +110,41 @@ export function usePointerDrag<T>(callbacks: PointerDragCallbacks<T>): (e: React
         cbRef.current.onMove(a.context, ev.clientX, ev.clientY)
       }
 
-      const onUp = (ev: PointerEvent) => {
+      const finish = (committed: boolean, x: number, y: number) => {
         const a = activeRef.current
-        if (a && ev.pointerId !== a.pointerId) return
         const started = a?.started ?? false
         const context = a?.context
         teardown()
         // Only fire onEnd if a drag actually began; a press-without-slop is a
         // plain click and is left entirely to the element's own onClick.
         if (started && context !== undefined) {
-          cbRef.current.onEnd(context, ev.type !== 'pointercancel')
+          cbRef.current.onEnd(context, committed, x, y)
         }
+      }
+
+      const onUp = (ev: PointerEvent) => {
+        const a = activeRef.current
+        if (a && ev.pointerId !== a.pointerId) return
+        finish(ev.type !== 'pointercancel', ev.clientX, ev.clientY)
+      }
+
+      // Escape aborts an in-flight drag with no commit (§3.2 dragging → cancel),
+      // mirroring the keyboard-grab Escape behavior.
+      const onKeyDown = (ev: KeyboardEvent) => {
+        if (ev.key !== 'Escape') return
+        const a = activeRef.current
+        if (!a) return
+        ev.preventDefault()
+        finish(false, a.lastX, a.lastY)
       }
 
       moveRef.current = onMove
       upRef.current = onUp
+      keyRef.current = onKeyDown
       window.addEventListener('pointermove', onMove)
       window.addEventListener('pointerup', onUp)
       window.addEventListener('pointercancel', onUp)
+      window.addEventListener('keydown', onKeyDown)
     },
     [teardown],
   )

@@ -101,11 +101,13 @@
   transition: background 0.1s;
 }
 
-.resultBtn:hover:not(:disabled) {
+.resultBtn:hover:not(.resultBtnFull) {
   background: var(--bg-hover);
 }
 
-.resultBtn:disabled {
+/* Grid-full affordance: dimmed like a disabled control, but still interactive so
+   the drag-to-replace source keeps receiving pointer events. */
+.resultBtnFull {
   opacity: 0.4;
   cursor: default;
 }
