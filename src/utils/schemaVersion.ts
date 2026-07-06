@@ -5,7 +5,7 @@ export const CURRENT_SCHEMA_VERSION = 4
 function migrate(chart: Chart): Chart {
   if (chart.schemaVersion > CURRENT_SCHEMA_VERSION) {
     console.warn(
-      `[mtg-chart] Unknown schema version ${chart.schemaVersion} (current: ${CURRENT_SCHEMA_VERSION}); loading as-is`,
+      `[manachart] Unknown schema version ${chart.schemaVersion} (current: ${CURRENT_SCHEMA_VERSION}); loading as-is`,
     )
     return chart
   }

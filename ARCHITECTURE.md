@@ -1,4 +1,4 @@
-# MTG Chart — Architecture
+# Mana Chart — Architecture
 
 ## Overview
 

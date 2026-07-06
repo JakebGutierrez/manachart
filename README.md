@@ -1,12 +1,12 @@
-# MTG Chart
+# Mana Chart
 
 A Topster-style collage builder for **Magic: The Gathering** card art. Search
 [Scryfall](https://scryfall.com) or paste a decklist, arrange the art into a grid,
 then export a PNG or share your chart with a link.
 
-**Live: [mtgchart.com](https://mtgchart.com)**
+**Live: [manachart.app](https://manachart.app)**
 
-![MTG Chart screenshot](design/Screenshot%202026-06-21%20at%203.45.35%20pm.png)
+![Mana Chart screenshot](design/Screenshot%202026-06-21%20at%203.45.35%20pm.png)
 
 ## Features
 
