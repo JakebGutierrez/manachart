@@ -34,6 +34,15 @@ function getSnapshot(): ShellLayout {
   return window.matchMedia(DRAWER_QUERY).matches ? 'drawer' : 'docked'
 }
 
+// Server rendering has no viewport to measure; docked is the pre-hydration
+// default (matches getSnapshot's no-matchMedia fallback, so a hydrating
+// client only re-stamps if its viewport genuinely differs). The app is
+// client-only today — this exists so useSyncExternalStore is SSR-correct
+// rather than throwing "Missing getServerSnapshot" if that ever changes.
+function getServerSnapshot(): ShellLayout {
+  return 'docked'
+}
+
 export function useLayoutMode(): ShellLayout {
-  return useSyncExternalStore(subscribe, getSnapshot)
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
 }

@@ -1,10 +1,13 @@
 # Phase 4 device-test script (owner session)
 
-What the machine already checked: build/lint/314 tests green; data-layout
+What the machine already checked: build/lint/tests green; data-layout
 stamping, drawer inert/focus/Escape semantics, sheet-appears-on-selection,
 delete-confirm, and the no-768/no-viewport-units source contract are all
-test-enforced. Headless Chrome confirmed no horizontal overflow at
-500/768/899/900/1280/1920 and the drawer↔docked flip at exactly 900.
+test-enforced. The headless-Chrome overflow/flip check is committed as a
+one-command probe — `npm run test:layout` (needs a local Chrome; not part of
+the `npm test` gate) — asserting no horizontal overflow at
+500/768/899/900/901/1280/1920 and the drawer↔docked flip at exactly 900,
+against the real app.
 
 What follows is the part only eyes and thumbs can judge. ~15 minutes.
 

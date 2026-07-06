@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi } from 'vitest'
+import { renderToString } from 'react-dom/server'
 import { useLayoutMode, LAYOUT_BREAKPOINT_PX } from '@/hooks/useLayoutMode'
 import { renderHook, act } from './harness'
 
@@ -92,5 +93,17 @@ describe('useLayoutMode', () => {
     const { result, unmount } = renderHook(useLayoutMode)
     expect(result.current).toBe('docked')
     unmount()
+  })
+
+  it('server-renders as docked (getServerSnapshot provided)', () => {
+    // renderToString always takes useSyncExternalStore's server path, so this
+    // throws "Missing getServerSnapshot" if the third argument is dropped.
+    function Probe() {
+      return <div data-layout={useLayoutMode()} />
+    }
+    // Even with a drawer-matching viewport stubbed, the server pass has no
+    // viewport to consult and must render the docked default.
+    stubMatchMedia(true)
+    expect(renderToString(<Probe />)).toContain('data-layout="docked"')
   })
 })
