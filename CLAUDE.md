@@ -13,15 +13,20 @@ npm run format    # prettier --write .
 ```
 
 `npm run build && npm run lint && npm run test` is the full correctness gate — all three
-must pass clean before every commit. The suite is ~140 tests across `src/__tests__/`;
-keeping it green is required (a red suite on `main` is what motivated a dedicated repair
-phase once — don't ship past it).
+must pass clean before every commit, and CI (`.github/workflows/ci.yml`) runs the same
+three on every push/PR to `main`. The suite is ~350 tests across 33 files in
+`src/__tests__/` as of the July 2026 handoff audit — the gate output, not this number,
+is the source of truth. Keeping it green is required (a red suite on `main` is what
+motivated a dedicated repair phase once — don't ship past it).
 
 ## Working agreement
 
 - Build one phase at a time; summarise decisions after each phase
 - Do not start the next phase without explicit user confirmation
 - Flag ambiguities not covered by `ARCHITECTURE.md` rather than guessing
+- Before "fixing" anything that looks odd, check `docs/tech-debt.md` — the register of
+  known debt, platform quirks, and deliberate keeps. Several things that look like bugs
+  are decisions.
 - Do not add `Co-Authored-By` to commits
 
 ## TypeScript constraints
@@ -43,16 +48,65 @@ The central type is `Chart` in `src/types/chart.ts`. Key details:
 
 ## Grid rendering
 
-`generateCellMap(rows, cols, heroConfig)` in `src/utils/cellMap.ts` produces the `CellMap` — the grid renderer consumes this and never computes slot positions itself. In uniform mode every cell is `{ kind: 'slot', slotIndex: i }`. The union also has `'hero'` (a spanning cell) and `'covered'` (occupied by an adjacent hero); `covered` cells must render `null` (no DOM node). All downstream logic (drop targets, "next empty", capacity, numbering) filters on `kind !== 'covered'`.
+`generateCellMap(rows, cols, heroConfig)` in `src/utils/cellMap.ts` produces the `CellMap` — the grid renderer consumes this and never computes slot positions itself. In uniform mode every cell is `{ kind: 'slot', slotIndex: i }`. The union also has `'hero'` (a spanning cell) and `'covered'` (occupied by an adjacent hero); `covered` cells must render `null` (no DOM node) and carry a `heroSlotIndex` back-pointer so keyboard navigation and drop targeting resolve covered → hero (derived at render, never persisted). All downstream logic (drop targets, "next empty", capacity, numbering) filters on `kind !== 'covered'`.
 
-React keys in the grid must be `cell.slotIndex`, not array index. Cells render `<img>` with `object-fit: cover` (never `background-image`) — `.cell img` CSS is already in `Grid.module.css`.
+React keys in the grid must be `cell.slotIndex`, not array index. Cells render `<img>` with `object-fit: cover` (never `background-image`) — the `.cardImg` class in `Grid.module.css`. Every `<img>` that loads Scryfall art (grid, crop preview, search results, printing thumbnails) must carry `crossOrigin="anonymous"` so all paths share one CORS-usable HTTP cache entry with the export's `fetch(mode: 'cors')` — dropping it anywhere reintroduces cold-cache export failures, and no test currently enforces it.
+
+## Interaction
+
+Card movement flows through a pure state machine (`src/interaction/moveMachine.ts` —
+`idle`/`pressed`/`dragging`/`moveArmed`) owned by `App`; the grid and search panel drive it
+through `MoveApi`/`SearchDragApi` (`src/interaction/moveApi.ts`) and the low-level pointer
+engine `src/interaction/usePointerDrag.ts`. Pointer Events only — HTML5 drag-and-drop was
+deleted in Phase 3. Touch arms a drag by ~400ms still-finger long-press; if the finger moves
+past slop first, the browser keeps the gesture (scroll wins). Keyboard navigation is pure
+math in `src/utils/gridNav.ts` (arrows/Home/End over the CellMap, covered → hero). The grid
+is one tab stop (roving tabindex), selection follows focus, Space grabs/commits a move,
+Delete clears, Shift+F10 / menu key opens the context menu. Every commit fires the same
+typed domain callbacks a click fires — one completed move = one undo entry.
+
+**Interaction invariant (overhaul brief §3.1).** No capability may exist only behind hover,
+only behind right-click, or only behind drag: every cell operation must be reachable from
+selection + a visible control + a keyboard path. Hover reveals, the context menu, and
+pointer gestures are accelerators over that baseline, never the baseline. The per-cell
+overlay buttons (×, ⇄, ↺) are deliberately `aria-hidden` + `tabIndex={-1}` for this reason —
+they are pointer accelerators, not the baseline; do not "fix" them into the tab order.
+**Known exception:** crop *repositioning* is currently pointer-drag-only — the planned
+keyboard nudges were never built (`docs/tech-debt.md` C8). Close that gap together with the
+crop editor's re-base onto `usePointerDrag` (tech-debt D3), not in isolation, and don't add
+a second exception.
+
+## Responsive layout
+
+Two shell modes, `docked` and `drawer`, from `useLayoutMode()`. The docked↔drawer breakpoint
+is `LAYOUT_BREAKPOINT_PX = 900` in `src/hooks/useLayoutMode.ts` and lives ONLY there: `App`
+stamps `data-layout="docked|drawer"` on the app root, and all mode-dependent CSS selects on
+`[data-layout=…]` — never its own media query. This is test-enforced: `layoutContract.test.ts`
+fails any stylesheet width media query (capability queries like `prefers-reduced-motion` are
+allowed) and any viewport unit or `clamp()` in grid sizing, which must stay container-driven
+(`min(100%, 900px)`). In drawer mode the Selected-card surface renders in a `BottomSheet`
+(deliberately non-modal — no trap, no backdrop; the grid stays interactive and selecting
+another cell retargets the sheet in place); docked mode renders the same `SelectedCard` as a
+sidebar section.
+
+## Overlays
+
+`src/components/Dialog/` is the one modal primitive: portal, backdrop, `role="dialog"`,
+`inert` on the app root while open, Escape, and focus restore with a disabled-opener
+fallback. `ImportModal` and `PrintingSwitcher` are consumers. Destructive actions (delete
+chart, clear cards, layout change) confirm through `ConfirmDialog` — never `window.confirm`.
+`ContextMenu` is a lighter menu primitive and is an accelerator only; `BottomSheet` is
+intentionally not a dialog (see above).
 
 ## State
 
 Chart state lives in the `useCharts` hook (`src/hooks/useCharts.ts`): a localStorage-persisted
-multi-chart store (`charts[]` + `activeId` under `mtg-chart:charts` / `mtg-chart:activeId`)
-with CRUD (`createChart`, `deleteChart`, `updateChart`, `setActiveId`) and share-link
-reconstruction. When the app loads with a `?c=` share payload, `loadOrInit` returns a
+multi-chart store (`charts[]` + `activeId` under `mtg-chart:charts` / `mtg-chart:activeId` —
+these key names keep the pre-rename brand ON PURPOSE: they are user-data keys, and renaming
+them would orphan every existing user's saved charts; no migration shipped, so don't "finish
+the rename" here) with CRUD (`createChart`, `duplicateChart`, `deleteChart`, `renameChart`,
+`setActiveId`, and `updateChart` — which takes an updater `(prev: Chart) => Chart`, never a
+plain object) and share-link reconstruction. When the app loads with a `?c=` share payload, `loadOrInit` returns a
 placeholder chart plus a `pendingReconstruction` stub list; a `useEffect` batches the stubs
 to Scryfall's `/cards/collection` endpoint and fills the real slots, exposing
 `isReconstructing` / reconstruction error/warning state. Writes are debounced through a
@@ -77,6 +131,13 @@ CSS Modules per component. Global tokens in `src/index.css`:
 | `--panel-width` | `260px` | sidebar width |
 | `--radius-sm` | `4px` | cells, buttons |
 | `--radius-md` | `8px` | canvas container |
+| `--focus-ring` | `#e8e8e8` | keyboard focus — deliberately distinct from the gold selection outline; focus and selection are two different states |
+| `--danger` | `#c0392b` | destructive actions |
+
+This table is a curated subset — the full token list is the top of `src/index.css`.
+Transition durations are still hardcoded per rule: the motion-token migration (overhaul
+Phase 5) never ran, and an interim `prefers-reduced-motion` sweep sits in `index.css`
+(`docs/tech-debt.md` B1).
 
 Chart style values (`backgroundColor`, `cellGap`, `padding`, `cornerRadius`) are always applied as inline styles — never hardcoded in CSS. Numeric values passed as inline styles get `px` appended automatically by React.
 
@@ -85,3 +146,10 @@ Chart style values (`backgroundColor`, `cellGap`, `padding`, `cornerRadius`) are
 API base: `https://api.scryfall.com`. Do not set `User-Agent` client-side — browsers block it.
 
 Image rendering always uses `artCrop` (the landscape art-box crop). `normal` is stored in `imageUris` for post-MVP use but never rendered. For multi-face cards (`card.card_faces`), populate `imageUris` for all faces at add time; face toggle requires no re-fetch. Skip any card missing `art_crop` on any image-bearing face.
+
+Beyond search: printings are fetched with pagination (`fetchAllPrintings` in
+`src/utils/scryfall.ts`, 5-page cap with a surfaced `truncated` flag); decklist import
+resolves cards via `/cards/{set}/{number}` and `/cards/named?exact|fuzzy`; share-link
+reconstruction batches `POST /cards/collection` in 75-id chunks (`src/utils/reconstruct.ts`).
+All of these are deliberately sequential and rate-limit-polite (inter-request delays,
+bounded 429 backoff) — keep them that way.

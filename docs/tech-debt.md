@@ -306,6 +306,5 @@ dialog primitive, …), but neither file says so — a cold reader could re-liti
 solved problems or "re-fix" them differently.
 
 - **Risk:** wasted future-session effort; contradictory guidance.
-- **Effort:** S — add a "historical record — findings since resolved; see
-  tech-debt.md and the decision log" banner to each. (Left for the doc-fix pass;
-  this register only notes it.)
+- **Status:** resolved in the same audit — both files now open with a
+  historical-record banner pointing back here.

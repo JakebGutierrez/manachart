@@ -1,3 +1,13 @@
+> **Historical record — do not act on this file.** This adjudication predates the
+> hardening phases and the UI overhaul. Buckets A and B were subsequently fixed
+> (quota-safe persistence, decode sanitization, printings pagination, keyboard
+> grid, the Dialog primitive, deferred `?c=` strip + retry, debounced persistence,
+> editable-target undo guard, edit-burst coalescing, face-index clamps, hybrid
+> import expansion, …) — except B10 (sequential export prefetch) and B11 (sidebar
+> grouping in hero layouts), now tracked in [tech-debt.md](tech-debt.md) (G3 and
+> C7 respectively). Bucket D items are deliberate keeps. Verify against current
+> source before acting on anything here.
+
 I've now verified both reviews against the actual code. Every line-number citation in both reviews checked out — no hallucinated locations in either. Here's the adjudication.
 
 Step 1 — Ground truth

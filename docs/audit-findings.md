@@ -1,5 +1,14 @@
 # Repository Audit — Findings (July 2026)
 
+> **Historical record — do not act on this file.** This audit predates the UI
+> overhaul and the hardening phases. F1–F5, F7–F9, and F11 have since been fixed
+> (CI, DOM-free export geometry, meta tags, vercel.json/CSP, self-hosted fonts,
+> real README, extracted+tested export geometry, touch and a11y via the overhaul);
+> F6's doc drift was resolved by the July 2026 handoff audit. F10 (`design/`
+> weight) was left as-is — the README now uses that screenshot. Live known issues
+> are tracked in [tech-debt.md](tech-debt.md). Verify anything below against
+> current source before acting on it.
+
 Senior-level audit of the live manachart.app deployment (static Vercel, auto-deploy on push to `main`). Read-only pass; nothing was changed. Companion to `docs/phase-22.5-findings.md` and follows its format: every line citation below was verified against the actual code in this session.
 
 ## Ground truth
