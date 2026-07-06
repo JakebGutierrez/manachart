@@ -1,9 +1,11 @@
 import { useMemo, useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
-import type { Chart, Slot } from '@/types/chart'
+import type { Chart } from '@/types/chart'
 import { generateCellMap } from '@/utils/cellMap'
 import { getSlot } from '@/utils/chart'
 import { moveFocus, type GridNavKey } from '@/utils/gridNav'
 import { isMultiFaceLayout } from '@/utils/scryfall'
+import { usePointerDrag } from '@/interaction/usePointerDrag'
+import type { MoveApi } from '@/interaction/moveApi'
 import ContextMenu from '@/components/ContextMenu'
 import NameDisplay from '@/components/NameDisplay'
 import styles from './Grid.module.css'
@@ -11,12 +13,11 @@ import styles from './Grid.module.css'
 interface Props {
   chart: Chart
   onSlotClear: (slotIndex: number) => void
-  onSlotMove: (from: number, to: number) => void
-  onSlotFillAtIndex: (slotIndex: number, slot: Slot) => void
   onFaceToggle: (slotIndex: number) => void
   onOpenPrintings: (slotIndex: number) => void
   selectedSlotIndex: number | null
   onCellSelect: (slotIndex: number | null) => void
+  move: MoveApi
   notifications?: ReactNode
 }
 
@@ -25,12 +26,11 @@ const NAV_KEYS: readonly GridNavKey[] = ['ArrowLeft', 'ArrowRight', 'ArrowUp', '
 export default function GridArea({
   chart,
   onSlotClear,
-  onSlotMove,
-  onSlotFillAtIndex,
   onFaceToggle,
   onOpenPrintings,
   selectedSlotIndex,
   onCellSelect,
+  move,
   notifications,
 }: Props) {
   const cellMap = useMemo(
@@ -45,11 +45,6 @@ export default function GridArea({
     viaKeyboard: boolean
   } | null>(null)
 
-  // The grid is one tab stop (roving tabindex). The tab stop is the selected cell
-  // when there's a selection (so Tab enters the grid on the selected cell), else
-  // the last-focused cell (so Delete/Escape — which clear selection but keep focus
-  // — leave the tab stop where the user is). Clamped so a stale index can't leave
-  // the grid untabbable after a shrink.
   const [focusIndex, setFocusIndex] = useState(0)
   const gridRef = useRef<HTMLDivElement>(null)
 
@@ -63,20 +58,43 @@ export default function GridArea({
     gridRef.current?.querySelector<HTMLElement>(`[data-slot-index="${slotIndex}"]`)?.focus()
   }, [])
 
-  const dragFromRef = useRef<number | null>(null)
-  const [dragOver, setDragOver] = useState<number | null>(null)
+  // A completed pointer drag can be followed by a synthetic click; suppress that
+  // one click so a drag never also re-selects the source cell. Cleared on a
+  // microtask so a drag that ends off-grid (no trailing click) can't leave the
+  // flag stuck and swallow the next legitimate click.
+  const suppressClickRef = useRef(false)
 
-  // Clears the drag-over highlight when any drag ends outside the grid
-  // (e.g. Escape-cancel or drop on a non-cell target). Grid-to-grid drags
-  // already clear via onDragEnd, so this is a harmless no-op for those.
+  const cellPointerDown = usePointerDrag<number>({
+    getContext: (e) => {
+      const el = (e.target as HTMLElement).closest<HTMLElement>('[data-slot-index]')
+      if (!el) return null
+      const idx = Number(el.dataset.slotIndex)
+      // Only filled cells are drag sources.
+      if (!Number.isInteger(idx) || !getSlot(chart, idx)) return null
+      return idx
+    },
+    onStart: (from) => move.beginCellDrag(from),
+    onMove: (_from, x, y) => move.dragMove(x, y),
+    onEnd: (_from, committed, x, y) => {
+      move.dragEnd(committed, x, y)
+      suppressClickRef.current = true
+      setTimeout(() => { suppressClickRef.current = false }, 0)
+    },
+  })
+
+  // When move is armed from the "Move" button (focus on the button, not the
+  // grid), pull focus onto the source cell so arrow keys can retarget it.
   useEffect(() => {
-    const clear = () => setDragOver(null)
-    document.addEventListener('dragend', clear)
-    return () => document.removeEventListener('dragend', clear)
-  }, [])
+    if (
+      move.state.kind === 'moveArmed' &&
+      gridRef.current &&
+      !gridRef.current.contains(document.activeElement)
+    ) {
+      focusCell(move.state.from)
+    }
+  }, [move.state, focusCell])
 
-  // Restore focus to the invoking cell when a keyboard-opened menu closes, so a
-  // Shift+F10 → Escape round trip returns the user to where they were.
+  // Restore focus to the invoking cell when a keyboard-opened menu closes.
   const closeContextMenu = useCallback(() => {
     if (contextMenu?.viaKeyboard) focusCell(contextMenu.slotIndex)
     setContextMenu(null)
@@ -107,8 +125,6 @@ export default function GridArea({
 
   const contextMenuSlot = contextMenu !== null ? getSlot(chart, contextMenu.slotIndex) : null
 
-  // Grid-scoped keyboard model (no global listeners). Selection follows focus:
-  // arrow/Home/End move focus AND select, matching what click does for pointers.
   const handleGridKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       const cellEl = (e.target as HTMLElement).closest<HTMLElement>('[data-slot-index]')
@@ -117,6 +133,33 @@ export default function GridArea({
       const slot = getSlot(chart, current)
       const key = e.key
 
+      // ── Armed move (keyboard grab / "Move" button) ──────────────────────
+      if (move.state.kind === 'moveArmed') {
+        const armedOver = move.state.over
+        if ((NAV_KEYS as readonly string[]).includes(key)) {
+          e.preventDefault()
+          const dest = moveFocus(cellMap, chart.gridCols, armedOver, key as GridNavKey)
+          move.retarget(dest)
+          focusCell(dest)
+          return
+        }
+        if (key === 'Enter' || key === ' ' || key === 'Spacebar') {
+          e.preventDefault()
+          move.commit(armedOver)
+          focusCell(armedOver)
+          return
+        }
+        if (key === 'Escape') {
+          e.preventDefault()
+          const from = move.state.from
+          move.cancel()
+          focusCell(from)
+          return
+        }
+        return // swallow other keys while armed
+      }
+
+      // ── Normal selection/navigation ─────────────────────────────────────
       if ((NAV_KEYS as readonly string[]).includes(key)) {
         e.preventDefault()
         const dest = moveFocus(cellMap, chart.gridCols, current, key as GridNavKey)
@@ -125,11 +168,17 @@ export default function GridArea({
         return
       }
 
-      if (key === 'Enter' || key === ' ' || key === 'Spacebar') {
-        // Select as fill target (empty) or select the card (filled). No move-mode
-        // in this phase — that's Phase 3.
+      if (key === 'Enter') {
         e.preventDefault()
         onCellSelect(current)
+        return
+      }
+
+      if (key === ' ' || key === 'Spacebar') {
+        // Filled cell: arm move (grab). Empty cell: select as fill target.
+        e.preventDefault()
+        if (slot) move.grab(current)
+        else onCellSelect(current)
         return
       }
 
@@ -137,8 +186,6 @@ export default function GridArea({
         if (slot) {
           e.preventDefault()
           onSlotClear(current)
-          // Focus stays on the now-empty cell (it still renders). Keep it the tab
-          // stop even though selection was cleared by the clear.
           setFocusIndex(current)
         }
         return
@@ -158,7 +205,34 @@ export default function GridArea({
         }
       }
     },
-    [cellMap, chart, onCellSelect, onSlotClear, focusCell],
+    [cellMap, chart, onCellSelect, onSlotClear, focusCell, move],
+  )
+
+  // Focus leaving the grid while a move is armed cancels it (no mutation), e.g.
+  // the user tabs or clicks away mid-grab.
+  const handleGridBlur = useCallback(
+    (e: React.FocusEvent) => {
+      if (move.state.kind === 'moveArmed' && !gridRef.current?.contains(e.relatedTarget as Node)) {
+        move.cancel()
+      }
+    },
+    [move],
+  )
+
+  const handleCellClick = useCallback(
+    (slotIndex: number) => {
+      if (suppressClickRef.current) {
+        suppressClickRef.current = false
+        return
+      }
+      if (move.state.kind === 'moveArmed') {
+        move.commit(slotIndex)
+        focusCell(slotIndex)
+        return
+      }
+      onCellSelect(slotIndex)
+    },
+    [move, onCellSelect, focusCell],
   )
 
   const isSquare = chart.displayMode === 'square'
@@ -173,10 +247,19 @@ export default function GridArea({
         : slot.label
       : null
 
+    const isMoveSource =
+      (move.state.kind === 'dragging' || move.state.kind === 'moveArmed') &&
+      move.state.from === cell.slotIndex
+    const isDropTarget =
+      (move.state.kind === 'dragging' || move.state.kind === 'moveArmed') &&
+      move.state.over === cell.slotIndex &&
+      move.state.over !== move.state.from
+
     const cellClass = [
       styles.cell,
       isSquare ? styles.cellSquare : '',
-      dragOver === cell.slotIndex ? styles.cellDragOver : '',
+      isDropTarget ? styles.cellDropTarget : '',
+      isMoveSource ? styles.cellMoving : '',
       isSelected ? styles.cellSelected : '',
     ]
       .filter(Boolean)
@@ -212,42 +295,9 @@ export default function GridArea({
           }),
         }}
         {...heroAria}
+        onPointerDown={slot ? cellPointerDown : undefined}
         onContextMenu={slot ? (e) => handleCellContextMenu(e, cell.slotIndex) : undefined}
-        draggable={!!slot}
-        onDragStart={slot ? () => { dragFromRef.current = cell.slotIndex } : undefined}
-        onDragOver={(e) => { e.preventDefault(); setDragOver(cell.slotIndex) }}
-        onDragLeave={(e) => {
-          if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(null)
-        }}
-        onDrop={(e) => {
-          e.preventDefault()
-          setDragOver(null)
-          const searchPayload = e.dataTransfer.getData('application/x-mtg-search-result')
-          if (searchPayload) {
-            try {
-              const parsed: unknown = JSON.parse(searchPayload)
-              if (typeof parsed === 'object' && parsed !== null) {
-                const p = parsed as Record<string, unknown>
-                if (
-                  p.kind === 'scryfall' &&
-                  Array.isArray(p.imageUris) &&
-                  p.imageUris.length > 0 &&
-                  typeof (p.imageUris[0] as Record<string, unknown>)?.artCrop === 'string'
-                ) {
-                  onSlotFillAtIndex(cell.slotIndex, parsed as Slot)
-                }
-              }
-            } catch { /* ignore malformed payload */ }
-            dragFromRef.current = null
-            return
-          }
-          if (dragFromRef.current !== null && dragFromRef.current !== cell.slotIndex) {
-            onSlotMove(dragFromRef.current, cell.slotIndex)
-          }
-          dragFromRef.current = null
-        }}
-        onDragEnd={() => { dragFromRef.current = null; setDragOver(null) }}
-        onClick={() => onCellSelect(cell.slotIndex)}
+        onClick={() => handleCellClick(cell.slotIndex)}
       >
         {slot && (() => {
           const imgSrc = slot.kind === 'scryfall'
@@ -264,6 +314,7 @@ export default function GridArea({
                 // on custom data: URLs (treated same-origin).
                 crossOrigin="anonymous"
                 alt={displayName ?? ''}
+                draggable={false}
                 style={{
                   objectPosition: `${slot.cropX * 100}% ${slot.cropY * 100}%`,
                   ...(slot.cropScale !== 1.0 && {
@@ -282,8 +333,7 @@ export default function GridArea({
               )}
               {/* Per-cell buttons are pointer accelerators only: aria-hidden and out
                   of the tab order so they aren't duplicate tab stops / nested
-                  interactives inside the gridcell. Every action they offer also lives
-                  on the Selected-card surface and (filled cells) the context menu. */}
+                  interactives inside the gridcell. */}
               <button
                 className={styles.removeBtn}
                 type="button"
@@ -356,6 +406,7 @@ export default function GridArea({
             aria-rowcount={chart.gridRows}
             aria-colcount={chart.gridCols}
             onKeyDown={handleGridKeyDown}
+            onBlur={handleGridBlur}
             onClick={(e) => { if (e.target === e.currentTarget) onCellSelect(null) }}
             style={{
               gridTemplateRows: `repeat(${chart.gridRows}, 1fr)`,

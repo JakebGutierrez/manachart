@@ -3,14 +3,17 @@ import type { Chart, Slot, CustomSlot } from '@/types/chart'
 import { useScryfall } from '@/hooks/useScryfall'
 import { getSlot } from '@/utils/chart'
 import { generateCellMap } from '@/utils/cellMap'
+import { usePointerDrag } from '@/interaction/usePointerDrag'
+import type { SearchDragApi } from '@/interaction/moveApi'
 import styles from './SearchPanel.module.css'
 
 interface Props {
   chart: Chart
   onSlotFill: (slot: Slot) => void
+  searchDrag: SearchDragApi
 }
 
-export default function SearchPanel({ chart, onSlotFill }: Props) {
+export default function SearchPanel({ chart, onSlotFill, searchDrag }: Props) {
   const [query, setQuery] = useState('')
   const { results, isLoading, error } = useScryfall(query)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -50,6 +53,40 @@ export default function SearchPanel({ chart, onSlotFill }: Props) {
   )
   const fillableCells = useMemo(() => cellMap.filter((c) => c.kind !== 'covered'), [cellMap])
   const isFull = fillableCells.every((c) => getSlot(chart, c.slotIndex) !== null)
+
+  // Results are pointer-drag sources onto the grid (desktop accelerator). The
+  // dragged Slot is carried in React state via the move machine — no dataTransfer
+  // JSON round-trip. Tap-to-fill (the button below) remains the everywhere path.
+  // usePointerDrag refreshes its callbacks each render, so getContext reads the
+  // current `results` closure directly (no ref needed).
+  // Suppress the synthetic click that follows a completed drag so a drag can't
+  // also fire tap-to-fill (double fill / double history entry). Same guard Grid
+  // uses; cleared on a microtask so an off-target drag can't leave it stuck.
+  const suppressClickRef = useRef(false)
+  const resultPointerDown = usePointerDrag<Slot>({
+    getContext: (e) => {
+      const el = (e.target as HTMLElement).closest<HTMLElement>('[data-search-index]')
+      if (!el) return null
+      const idx = Number(el.dataset.searchIndex)
+      return Number.isInteger(idx) ? results[idx] ?? null : null
+    },
+    onStart: (slot) => searchDrag.beginSearchDrag(slot),
+    onMove: (_slot, x, y) => searchDrag.dragMove(x, y),
+    onEnd: (_slot, committed, x, y) => {
+      searchDrag.dragEnd(committed, x, y)
+      suppressClickRef.current = true
+      setTimeout(() => { suppressClickRef.current = false }, 0)
+    },
+  })
+
+  // Tap-to-fill (skips the click that trails a drag; no-op when the grid is full).
+  const handleResultClick = (result: Slot) => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false
+      return
+    }
+    if (!isFull) onSlotFill(result)
+  }
 
   return (
     <div className={styles.container}>
@@ -91,20 +128,21 @@ export default function SearchPanel({ chart, onSlotFill }: Props) {
 
       {!isLoading && !error && results.length > 0 && (
         <ul className={styles.results} role="list">
-          {results.map((result) => (
+          {results.map((result, index) => (
             <li
               key={result.scryfallId}
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.setData('application/x-mtg-search-result', JSON.stringify(result))
-                e.dataTransfer.effectAllowed = 'copy'
-              }}
+              data-search-index={index}
+              onPointerDown={resultPointerDown}
             >
               <button
-                className={styles.resultBtn}
+                className={`${styles.resultBtn}${isFull ? ` ${styles.resultBtnFull}` : ''}`}
                 type="button"
-                disabled={isFull}
-                onClick={() => onSlotFill(result)}
+                // NOT `disabled`: a disabled button swallows pointer events, which
+                // would kill the drag-to-replace source on the <li> when the grid
+                // is full. aria-disabled + a dimmed style preserve the affordance
+                // while keeping the element interactive for pointer drags.
+                aria-disabled={isFull}
+                onClick={() => handleResultClick(result)}
               >
                 <img
                   className={styles.thumb}

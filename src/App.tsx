@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
 import './App.css'
 import ControlPanel from '@/components/ControlPanel'
 import GridArea from '@/components/Grid'
 import ImportModal from '@/components/ImportModal'
 import PrintingSwitcher from '@/components/PrintingSwitcher'
 import ConfirmDialog from '@/components/Dialog/ConfirmDialog'
+import DragGhost from '@/components/DragGhost'
+import { moveReducer, IDLE } from '@/interaction/moveMachine'
 import { generateCellMap } from '@/utils/cellMap'
 import { getSlot, resolveSlotFillTarget } from '@/utils/chart'
 import { useExport } from '@/hooks/useExport'
@@ -114,6 +116,16 @@ function App() {
   // the Grid (per-cell button / context menu) and the Selected-card action
   // surface alike. Cleared alongside selection on chart-level transitions.
   const [printingForIndex, setPrintingForIndex] = useState<number | null>(null)
+  // Card-movement machine state (Phase 3). Declared here so chart-level handlers
+  // above the movement orchestration can reset it synchronously alongside
+  // selection/printing (no reset-in-effect). The rest of the orchestration —
+  // refs, commit/drag callbacks — lives further down, after the slot mutators.
+  const [moveState, dispatchMove] = useReducer(moveReducer, IDLE)
+  const [dragPayload, setDragPayload] = useState<Slot | null>(null)
+  const resetMoveState = useCallback(() => {
+    dispatchMove({ type: 'RESET' })
+    setDragPayload(null)
+  }, [])
   const [showImportModal, setShowImportModal] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null)
@@ -125,17 +137,19 @@ function App() {
       setHistory({ past: [], future: [] })
       setSelectedSlotIndex(null)
       setPrintingForIndex(null)
+      resetMoveState()
       setActiveId(id)
     },
-    [setActiveId],
+    [setActiveId, resetMoveState],
   )
 
   const handleCreateChart = useCallback(() => {
     setHistory({ past: [], future: [] })
     setSelectedSlotIndex(null)
     setPrintingForIndex(null)
+    resetMoveState()
     createChart()
-  }, [createChart])
+  }, [createChart, resetMoveState])
 
   // Duplicate the active chart. Like create/select, the new chart becomes active so
   // its (fresh) history starts clean and any stale crop selection is cleared.
@@ -143,8 +157,9 @@ function App() {
     setHistory({ past: [], future: [] })
     setSelectedSlotIndex(null)
     setPrintingForIndex(null)
+    resetMoveState()
     duplicateChart()
-  }, [duplicateChart])
+  }, [duplicateChart, resetMoveState])
 
   const handleDeleteChart = useCallback(
     (id: string) => {
@@ -152,10 +167,11 @@ function App() {
         setHistory({ past: [], future: [] })
         setSelectedSlotIndex(null)
         setPrintingForIndex(null)
+        resetMoveState()
       }
       deleteChart(id)
     },
-    [activeId, deleteChart],
+    [activeId, deleteChart, resetMoveState],
   )
 
   const undo = useCallback(() => {
@@ -168,8 +184,9 @@ function App() {
     }))
     setSelectedSlotIndex(null)
     setPrintingForIndex(null)
+    resetMoveState()
     updateChart(() => snapshot)
-  }, [history, activeChart, updateChart])
+  }, [history, activeChart, updateChart, resetMoveState])
 
   const redo = useCallback(() => {
     if (history.future.length === 0) return
@@ -181,8 +198,9 @@ function App() {
     }))
     setSelectedSlotIndex(null)
     setPrintingForIndex(null)
+    resetMoveState()
     updateChart(() => snapshot)
-  }, [history, activeChart, updateChart])
+  }, [history, activeChart, updateChart, resetMoveState])
 
   // Stable keyboard listener via ref — avoids re-registering on every history change.
   // useLayoutEffect (not useEffect) closes the window between commit and the native
@@ -483,6 +501,125 @@ function App() {
     if (selectedSlotIndex !== null) handleOpenPrintings(selectedSlotIndex)
   }, [selectedSlotIndex, handleOpenPrintings])
 
+  // ── Card movement (Phase 3 spine) ────────────────────────────────────────
+  // The pure machine (state declared above) is driven by the grid, the search
+  // panel, and the Selected-card "Move" button — App is their shared parent.
+  // Every commit fires the same domain callbacks a click/drop fired before, so
+  // history/selection semantics are unchanged — one move = one undo entry.
+  //
+  // Live refs so a pointer drag's window-listener callbacks (captured at
+  // pointerdown) read the freshest state/payload on release.
+  const moveStateRef = useRef(moveState)
+  const dragPayloadRef = useRef(dragPayload)
+  useLayoutEffect(() => { moveStateRef.current = moveState })
+  useLayoutEffect(() => { dragPayloadRef.current = dragPayload })
+
+  // Ghost tracking, mutated per pointermove without a React render.
+  const ghostRef = useRef<HTMLDivElement>(null)
+  const pointerPosRef = useRef({ x: 0, y: 0 })
+
+  // Resolve the grid cell under a pointer position to its slotIndex. Covered
+  // cells render no DOM node, so a hit resolves straight to a real slot/hero
+  // index (covered→hero) — no extra resolution needed. Off-grid → null.
+  const resolveDropTarget = useCallback((x: number, y: number): number | null => {
+    const el = document.elementFromPoint(x, y)?.closest('[data-slot-index]') as HTMLElement | null
+    if (!el) return null
+    const idx = Number(el.dataset.slotIndex)
+    return Number.isInteger(idx) ? idx : null
+  }, [])
+
+  const beginCellDrag = useCallback((from: number) => {
+    dispatchMove({ type: 'DRAG_START', from, source: 'cell' })
+  }, [])
+
+  const beginSearchDrag = useCallback((slot: Slot) => {
+    setDragPayload(slot)
+    dispatchMove({ type: 'DRAG_START', from: -1, source: 'search' })
+  }, [])
+
+  // Live hover cue only — the committed target is resolved fresh at pointerup.
+  const handleDragMove = useCallback((x: number, y: number) => {
+    pointerPosRef.current = { x, y }
+    if (ghostRef.current) ghostRef.current.style.transform = `translate(${x}px, ${y}px)`
+    dispatchMove({ type: 'DRAG_OVER', over: resolveDropTarget(x, y) })
+  }, [resolveDropTarget])
+
+  const resetMove = useCallback(() => {
+    resetMoveState()
+  }, [resetMoveState])
+
+  // Commit a completed drag or armed move via the existing domain callbacks.
+  const commitMove = useCallback((to: number | null) => {
+    const st = moveStateRef.current
+    if (st.kind === 'dragging') {
+      if (to !== null) {
+        if (st.source === 'search') {
+          const payload = dragPayloadRef.current
+          if (payload) handleSlotFillAtIndex(to, payload)
+        } else if (to !== st.from) {
+          handleSlotMove(st.from, to)
+        }
+      }
+    } else if (st.kind === 'moveArmed') {
+      if (to !== null && to !== st.from) handleSlotMove(st.from, to)
+    }
+    resetMove()
+  }, [handleSlotMove, handleSlotFillAtIndex, resetMove])
+
+  // Resolve the drop target from the ACTUAL release coordinates (not a cached
+  // hover): a fast release or an off-grid release commits to exactly where the
+  // pointer was, and off-grid (null) mutates nothing.
+  const handleDragEnd = useCallback((committed: boolean, x: number, y: number) => {
+    commitMove(committed ? resolveDropTarget(x, y) : null)
+  }, [commitMove, resolveDropTarget])
+
+  const grabMove = useCallback((from: number) => {
+    dispatchMove({ type: 'GRAB', from })
+  }, [])
+
+  const retargetMove = useCallback((over: number) => {
+    dispatchMove({ type: 'RETARGET', over })
+  }, [])
+
+  // "Move" action on the Selected-card surface: arm move on the selection (or
+  // cancel if already armed).
+  const armMoveSelected = useCallback(() => {
+    if (moveStateRef.current.kind === 'moveArmed') { resetMove(); return }
+    if (selectedSlotIndex === null) return
+    if (!getSlot(activeChart, selectedSlotIndex)) return
+    grabMove(selectedSlotIndex)
+  }, [selectedSlotIndex, activeChart, grabMove, resetMove])
+
+  // Stable prop objects (callbacks are all useCallback-stable) so the grid and
+  // search panel only re-render when moveState actually changes, not on every
+  // unrelated App render (e.g. a crop-drag stream).
+  const moveApi = useMemo(
+    () => ({
+      state: moveState,
+      beginCellDrag,
+      dragMove: handleDragMove,
+      dragEnd: handleDragEnd,
+      grab: grabMove,
+      retarget: retargetMove,
+      commit: commitMove,
+      cancel: resetMove,
+    }),
+    [moveState, beginCellDrag, handleDragMove, handleDragEnd, grabMove, retargetMove, commitMove, resetMove],
+  )
+  const searchDragApi = useMemo(
+    () => ({ beginSearchDrag, dragMove: handleDragMove, dragEnd: handleDragEnd }),
+    [beginSearchDrag, handleDragMove, handleDragEnd],
+  )
+
+  // Seed the drag ghost's position the moment it appears (before paint), so it
+  // starts under the pointer instead of flashing at the top-left corner.
+  useLayoutEffect(() => {
+    if (moveState.kind === 'dragging' && ghostRef.current) {
+      const { x, y } = pointerPosRef.current
+      ghostRef.current.style.transform = `translate(${x}px, ${y}px)`
+    }
+  }, [moveState.kind])
+
   // Crop drag: push the pre-drag chart to history once on mousedown, then
   // apply live updates without history during the drag. This gives a single
   // undo step that reverts the entire drag, not one step per pixel moved.
@@ -568,6 +705,19 @@ function App() {
 
   const printingSlot =
     printingForIndex !== null ? (getSlot(activeChart, printingForIndex) ?? null) : null
+
+  // The card the drag ghost should mirror while a pointer drag is in flight.
+  const draggingSlot =
+    moveState.kind === 'dragging'
+      ? moveState.source === 'search'
+        ? dragPayload
+        : (getSlot(activeChart, moveState.from) ?? null)
+      : null
+  const ghostSrc = draggingSlot
+    ? draggingSlot.kind === 'scryfall'
+      ? draggingSlot.imageUris[draggingSlot.selectedFaceIndex].artCrop
+      : draggingSlot.localImageDataUrl
+    : null
 
   const {
     exporting,
@@ -670,6 +820,9 @@ function App() {
         onSelectedRemove={handleSelectedRemove}
         onSelectedFlip={handleSelectedFlip}
         onSelectedSwitchPrinting={handleSelectedOpenPrintings}
+        onArmMove={armMoveSelected}
+        moveArmed={moveState.kind === 'moveArmed'}
+        searchDrag={searchDragApi}
         onCropDragBegin={handleCropDragBegin}
         onCropLive={handleCropLive}
         onCropChange={handleCropChange}
@@ -707,14 +860,14 @@ function App() {
       <GridArea
         chart={activeChart}
         onSlotClear={handleSlotClear}
-        onSlotMove={handleSlotMove}
-        onSlotFillAtIndex={handleSlotFillAtIndex}
         onFaceToggle={handleFaceToggle}
         onOpenPrintings={handleOpenPrintings}
         selectedSlotIndex={selectedSlotIndex}
         onCellSelect={handleCellSelect}
+        move={moveApi}
         notifications={notifications}
       />
+      {ghostSrc && <DragGhost ref={ghostRef} src={ghostSrc} />}
       {printingForIndex !== null && printingSlot !== null && printingSlot.kind === 'scryfall' && (
         <PrintingSwitcher
           currentSlot={printingSlot}
