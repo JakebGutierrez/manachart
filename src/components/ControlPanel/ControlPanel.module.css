@@ -8,23 +8,39 @@
   overflow: hidden;
 }
 
-/* Mobile: panel becomes an off-canvas drawer toggled by the hamburger */
-@media (max-width: 768px) {
-  .panel {
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    z-index: 50;
-    width: min(85vw, 320px);
-    min-width: 0;
-    transform: translateX(-100%);
-    transition: transform 0.25s ease;
-    box-shadow: 2px 0 16px rgba(0, 0, 0, 0.4);
-  }
-  .panelOpen {
-    transform: translateX(0);
-  }
+/* Programmatic focus target on drawer open (tabIndex=-1) — no ring on the
+   container itself; focus then moves on to its controls via Tab. */
+.panel:focus {
+  outline: none;
+}
+
+/* Drawer mode: the panel becomes an off-canvas drawer toggled by the hamburger.
+   Closed = `inert` (set in JSX) + visibility:hidden, so its controls leave the
+   tab order and the accessibility tree; the 0s/0.25s visibility delay keeps the
+   slide-out transition visible before the panel disappears. */
+[data-layout='drawer'] .panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 50;
+  width: min(85vw, 320px);
+  min-width: 0;
+  transform: translateX(-100%);
+  visibility: hidden;
+  transition: transform 0.25s ease, visibility 0s 0.25s;
+  box-shadow: 2px 0 16px rgba(0, 0, 0, 0.4);
+  /* Fixed chrome: keep drawer content clear of notch / home indicator when the
+     viewport extends under them (viewport-fit=cover). */
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+[data-layout='drawer'] .panelOpen {
+  transform: translateX(0);
+  visibility: visible;
+  transition: transform 0.25s ease, visibility 0s 0s;
 }
 
 .header {
@@ -203,8 +219,17 @@
   opacity: 0;
 }
 
-.pickerItem:hover .pickerDelete {
+.pickerItem:hover .pickerDelete,
+.pickerDelete:focus-visible {
   opacity: 1;
+}
+
+/* No hover, no reveal: on touch devices the delete affordance must be visible
+   outright (§7.3 — a destructive control may not be hover-only). */
+@media (hover: none) {
+  .pickerDelete {
+    opacity: 1;
+  }
 }
 
 .pickerDelete:hover {
@@ -444,59 +469,6 @@
   gap: 6px;
 }
 
-/* Crop editor */
-.cropPreview {
-  width: 100%;
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  cursor: crosshair;
-  user-select: none;
-  margin-bottom: 8px;
-  /* Crop repositioning owns the touch gesture — without this the panel scrolls
-     instead and the browser cancels the pointer stream mid-drag. */
-  touch-action: none;
-}
-
-.cropPreviewImg {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  pointer-events: none;
-  draggable: false;
-}
-
-.cropRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-}
-
-.cropZoomSlider {
-  flex: 1;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
-
-.cropResetBtn {
-  width: 100%;
-  margin-top: 6px;
-  padding: 5px 0;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
-}
-
-.cropResetBtn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
 .undoBtn {
   flex: 1;
   padding: 6px 0;
@@ -641,55 +613,4 @@
 .clearBtn:disabled {
   opacity: 0.3;
   cursor: default;
-}
-
-.selectedName {
-  color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 500;
-  margin-bottom: 8px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.selectedActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-
-.selectedActionBtn {
-  flex: 1 1 auto;
-  min-width: 64px;
-  padding: 6px 8px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
-}
-
-.selectedActionBtn:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.selectedActionBtnDanger:hover:not(:disabled) {
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
-.selectedActionBtn:disabled {
-  opacity: 0.3;
-  cursor: default;
-}
-
-.selectedActionBtnActive {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }

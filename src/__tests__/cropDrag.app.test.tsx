@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import App from '@/App'
 import type { Chart, Slot } from '@/types/chart'
-import cpStyles from '@/components/ControlPanel/ControlPanel.module.css'
+import cpStyles from '@/components/SelectedCard/SelectedCard.module.css'
 import { renderComponent, act, click, byAriaLabel } from './harness'
 
 const store = new Map<string, string>()

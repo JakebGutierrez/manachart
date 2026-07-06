@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
 import './App.css'
+import BottomSheet from '@/components/BottomSheet'
 import ControlPanel from '@/components/ControlPanel'
 import GridArea from '@/components/Grid'
 import ImportModal from '@/components/ImportModal'
 import PrintingSwitcher from '@/components/PrintingSwitcher'
+import SelectedCard from '@/components/SelectedCard'
 import ConfirmDialog from '@/components/Dialog/ConfirmDialog'
 import DragGhost from '@/components/DragGhost'
 import { moveReducer, IDLE } from '@/interaction/moveMachine'
@@ -11,6 +13,7 @@ import { generateCellMap } from '@/utils/cellMap'
 import { getSlot, resolveSlotFillTarget } from '@/utils/chart'
 import { useExport } from '@/hooks/useExport'
 import { useCharts } from '@/hooks/useCharts'
+import { useLayoutMode } from '@/hooks/useLayoutMode'
 import { sortSlots, shuffleSlots } from '@/utils/sort'
 import type { SortKey } from '@/utils/sort'
 import { encodeShareLink } from '@/utils/shareLink'
@@ -48,9 +51,12 @@ type CropValues = { cropX: number; cropY: number; cropScale: number }
 // A destructive action awaiting ConfirmDialog resolution. Stored as a
 // discriminated action rather than a captured callback so confirming always
 // applies through the current handlers against the freshest chart state.
+// delete-chart captures the name at request time for the dialog message (the
+// dialog is modal, so the list can't change underneath it).
 type PendingConfirm =
   | { kind: 'layout-change'; mode: LayoutMode }
   | { kind: 'clear-cards' }
+  | { kind: 'delete-chart'; id: string; name: string }
 
 function App() {
   const {
@@ -127,8 +133,29 @@ function App() {
     setDragPayload(null)
   }, [])
   const [showImportModal, setShowImportModal] = useState(false)
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null)
+
+  // Responsive shell (§2.a): one matchMedia subscription; the mode is stamped
+  // on the app root as data-layout, which all layout-dependent CSS keys off.
+  const layoutMode = useLayoutMode()
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const menuToggleRef = useRef<HTMLButtonElement>(null)
+
+  // Reset-on-change during render (not an effect): crossing the breakpoint
+  // dissolves the drawer, so a later return to drawer mode doesn't reopen it
+  // unasked. No focus juggling — this is a viewport change, not a user close.
+  const [prevLayoutMode, setPrevLayoutMode] = useState(layoutMode)
+  if (prevLayoutMode !== layoutMode) {
+    setPrevLayoutMode(layoutMode)
+    if (drawerOpen) setDrawerOpen(false)
+  }
+
+  // Closing the drawer returns focus to the toggle (§2.a) — the counterpart of
+  // ControlPanel moving focus into the panel on open.
+  const closeDrawer = useCallback(() => {
+    setDrawerOpen(false)
+    menuToggleRef.current?.focus()
+  }, [])
 
   // History resets synchronously when switching charts so canUndo/canRedo are
   // immediately correct for the newly active chart.
@@ -172,6 +199,17 @@ function App() {
       deleteChart(id)
     },
     [activeId, deleteChart, resetMoveState],
+  )
+
+  // Deletion is the app's only unrecoverable destructive action (undo history
+  // is per-chart and session-only), so it always confirms first (§7.3a).
+  const handleDeleteChartRequest = useCallback(
+    (id: string) => {
+      const chart = charts.find((c) => c.id === id)
+      if (!chart) return
+      setPendingConfirm({ kind: 'delete-chart', id, name: chart.name })
+    },
+    [charts],
   )
 
   const undo = useCallback(() => {
@@ -431,8 +469,9 @@ function App() {
     if (!pendingConfirm) return
     setPendingConfirm(null)
     if (pendingConfirm.kind === 'layout-change') applyLayoutMode(pendingConfirm.mode)
+    else if (pendingConfirm.kind === 'delete-chart') handleDeleteChart(pendingConfirm.id)
     else applyClearCards()
-  }, [pendingConfirm, applyLayoutMode, applyClearCards])
+  }, [pendingConfirm, applyLayoutMode, applyClearCards, handleDeleteChart])
 
   const handleConfirmCancel = useCallback(() => setPendingConfirm(null), [])
 
@@ -776,24 +815,25 @@ function App() {
   )
 
   return (
-    <div className="app">
+    <div className="app" data-layout={layoutMode}>
       <button
+        ref={menuToggleRef}
         className="menuToggle"
         type="button"
         aria-label="Toggle controls"
-        aria-expanded={mobileMenuOpen}
-        onClick={() => setMobileMenuOpen((o) => !o)}
+        aria-expanded={drawerOpen}
+        onClick={() => (drawerOpen ? closeDrawer() : setDrawerOpen(true))}
       >
-        {mobileMenuOpen ? '✕' : '☰'}
+        {drawerOpen ? '✕' : '☰'}
       </button>
-      {mobileMenuOpen && (
-        <div className="backdrop" onClick={() => setMobileMenuOpen(false)} />
-      )}
+      {drawerOpen && <div className="backdrop" onClick={closeDrawer} />}
       <ControlPanel
         chart={activeChart}
         charts={charts}
         activeId={activeId}
-        mobileOpen={mobileMenuOpen}
+        layoutMode={layoutMode}
+        drawerOpen={drawerOpen}
+        onDrawerClose={closeDrawer}
         onSlotFill={handleSlotFill}
         onGridResize={handleGridResize}
         onBgColorChange={handleBgColorChange}
@@ -806,7 +846,7 @@ function App() {
         onSelectChart={handleSelectChart}
         onCreateChart={handleCreateChart}
         onDuplicateChart={handleDuplicateChart}
-        onDeleteChart={handleDeleteChart}
+        onDeleteChart={handleDeleteChartRequest}
         onRenameChart={renameChart}
         canUndo={history.past.length > 0 && !showImportModal}
         canRedo={history.future.length > 0 && !showImportModal}
@@ -849,9 +889,17 @@ function App() {
           message={
             pendingConfirm.kind === 'layout-change'
               ? 'Changing the layout will clear all placed cards. Continue?'
-              : 'Clear all cards from this chart?'
+              : pendingConfirm.kind === 'delete-chart'
+                ? `Delete "${pendingConfirm.name}"? This can't be undone.`
+                : 'Clear all cards from this chart?'
           }
-          confirmLabel={pendingConfirm.kind === 'layout-change' ? 'Change layout' : 'Clear cards'}
+          confirmLabel={
+            pendingConfirm.kind === 'layout-change'
+              ? 'Change layout'
+              : pendingConfirm.kind === 'delete-chart'
+                ? 'Delete chart'
+                : 'Clear cards'
+          }
           danger
           onConfirm={handleConfirmResolve}
           onCancel={handleConfirmCancel}
@@ -867,6 +915,25 @@ function App() {
         move={moveApi}
         notifications={notifications}
       />
+      {/* Phone home for the Selected-card surface (§7.1b): same component the
+          docked panel renders, in a bottom sheet the grid stays visible behind.
+          Move works from here too — arm, then tap a target cell. */}
+      {layoutMode === 'drawer' && selectedSlot && (
+        <BottomSheet label="Selected card" onDismiss={() => handleCellSelect(null)}>
+          <SelectedCard
+            slot={selectedSlot}
+            displayMode={activeChart.displayMode}
+            onRemove={handleSelectedRemove}
+            onFlip={handleSelectedFlip}
+            onSwitchPrinting={handleSelectedOpenPrintings}
+            onArmMove={armMoveSelected}
+            moveArmed={moveState.kind === 'moveArmed'}
+            onCropDragBegin={handleCropDragBegin}
+            onCropLive={handleCropLive}
+            onCropChange={handleCropChange}
+          />
+        </BottomSheet>
+      )}
       {ghostSrc && <DragGhost ref={ghostRef} src={ghostSrc} />}
       {printingForIndex !== null && printingSlot !== null && printingSlot.kind === 'scryfall' && (
         <PrintingSwitcher
