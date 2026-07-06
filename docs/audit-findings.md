@@ -1,6 +1,6 @@
 # Repository Audit — Findings (July 2026)
 
-Senior-level audit of the live mtgchart.com deployment (static Vercel, auto-deploy on push to `main`). Read-only pass; nothing was changed. Companion to `docs/phase-22.5-findings.md` and follows its format: every line citation below was verified against the actual code in this session.
+Senior-level audit of the live manachart.app deployment (static Vercel, auto-deploy on push to `main`). Read-only pass; nothing was changed. Companion to `docs/phase-22.5-findings.md` and follows its format: every line citation below was verified against the actual code in this session.
 
 ## Ground truth
 
@@ -14,7 +14,7 @@ npm run test   → vitest run → Test Files 17 passed (17) | Tests 143 passed (
 
 **Stated up front:** `CLAUDE.md` is materially stale (it claims there are no tests and lists ten fully-implemented modules as "stubs"). The code and passing suite were treated as ground truth throughout; the drift itself is logged as finding F6.
 
-Files read to verify: all of `src/` (every hook, util, component, CSS module, and the 17 test files), `index.html`, `package.json`, `vite.config.ts`, `tsconfig.app.json`, `eslint.config.js`, `.gitignore`, `public/`, `design/`, plus `ARCHITECTURE.md`, `CLAUDE.md`, `MTG_Chart_Roadmap_Phase18plus.md`, and `docs/phase-22.5-findings.md`.
+Files read to verify: all of `src/` (every hook, util, component, CSS module, and the 17 test files), `index.html`, `package.json`, `vite.config.ts`, `tsconfig.app.json`, `eslint.config.js`, `.gitignore`, `public/`, `design/`, plus `ARCHITECTURE.md`, `CLAUDE.md`, `Mana_Chart_Roadmap_Phase18plus.md`, and `docs/phase-22.5-findings.md`.
 
 ---
 
@@ -51,7 +51,7 @@ Mobile users get an export at roughly 40% of desktop resolution, re-exports are 
 
 ### F3 — Zero social/meta tags on a product whose whole point is sharing · **infra/QoL · S**
 
-**Evidence.** [index.html](../index.html) contains a `<title>` and favicon and nothing else: no meta description, no Open Graph tags, no Twitter card, no `theme-color`, no `apple-touch-icon`; `public/` has no `robots.txt`. Pasting an mtgchart.com link (including a `?c=` share link) into Discord/Twitter/Slack renders a bare URL with no preview card — for a tool built around shareable links this is the single cheapest visibility fix in the repo.
+**Evidence.** [index.html](../index.html) contains a `<title>` and favicon and nothing else: no meta description, no Open Graph tags, no Twitter card, no `theme-color`, no `apple-touch-icon`; `public/` has no `robots.txt`. Pasting a manachart.app link (including a `?c=` share link) into Discord/Twitter/Slack renders a bare URL with no preview card — for a tool built around shareable links this is the single cheapest visibility fix in the repo.
 
 **Recommendation.** Static tags in `index.html`: description, `og:title` / `og:description` / `og:image` / `og:url` / `og:type`, `twitter:card: summary_large_image`, `theme-color: #0b0c0e`, an `apple-touch-icon` PNG, plus a `robots.txt`. Ship a single branded 1200×630 `og-image.png` in `public/` (an attractive example chart is the obvious artwork). **Per-share OG images are not feasible purely statically** — crawlers don't execute JS, so the `?c=` payload can never influence a static tag. An `@vercel/og` edge function reading `?c=` could do it and would be genuinely great for this product, but it's the repo's first server-side code; logged in the ideas lane as conditional rather than recommended here.
 
@@ -90,7 +90,7 @@ Verify on a preview deployment before production — a mis-scoped CSP would brea
 
 **Evidence.** [README.md](../README.md) is the unmodified `create-vite` boilerplate ("This template provides a minimal setup…") — on the public repo behind a live domain, it's the front door and says nothing about the product.
 
-**Recommendation.** Short real README: what it is (Topster-style MTG collage builder), screenshot, link to mtgchart.com, feature list, dev commands (`dev`/`build`/`lint`/`test`), the Scryfall/WotC attribution line (mirroring the in-app disclaimer from Phase 19), and a license statement (the repo currently has **no license file** — worth an explicit decision while touching this).
+**Recommendation.** Short real README: what it is (Topster-style MTG collage builder), screenshot, link to manachart.app, feature list, dev commands (`dev`/`build`/`lint`/`test`), the Scryfall/WotC attribution line (mirroring the in-app disclaimer from Phase 19), and a license statement (the repo currently has **no license file** — worth an explicit decision while touching this).
 
 ### F8 — `useExport` has zero tests; pure geometry is trapped in the hook · **robustness · M**
 
@@ -168,7 +168,7 @@ Explicitly closing out the remaining leads from the brief — these were checked
 
 **I5 — Paste image (Cmd+V) for custom slots · S.** A window-level `paste` handler feeding the existing `CustomSlot` path (same validation as the file input, target = selected-else-first-empty, same as search fill). Screenshot-to-slot without a save-to-disk round trip. Small; main design decision is label derivation (no filename — "Pasted image N").
 
-**I6 — Deck-stats footer in the export (opt-in) · M.** `cmc`, `colors`, and `typeLine` are already stored on every `ScryfallSlot` (they power sort). An optional footer strip in the export — colour pips, a small mana curve, card count — would make mtgchart output instantly recognisable next to a generic Topsters grid, and it's all data already in hand. Could also carry an "art: <artists>" credit line, extending Phase 19's attribution into the shared artifact itself. Trade-offs: a new preview-vs-export parity surface (build it *after* F2's deterministic geometry, render it in both DOM and canvas), and real design care to avoid clutter — strictly opt-in, default off.
+**I6 — Deck-stats footer in the export (opt-in) · M.** `cmc`, `colors`, and `typeLine` are already stored on every `ScryfallSlot` (they power sort). An optional footer strip in the export — colour pips, a small mana curve, card count — would make Mana Chart output instantly recognisable next to a generic Topsters grid, and it's all data already in hand. Could also carry an "art: <artists>" credit line, extending Phase 19's attribution into the shared artifact itself. Trade-offs: a new preview-vs-export parity surface (build it *after* F2's deterministic geometry, render it in both DOM and canvas), and real design care to avoid clutter — strictly opt-in, default off.
 
 **I7 — Fixed-size export presets · M.** Natural follow-on of F2: once resolution is deterministic, replace raw 1×/2× with named presets ("Standard 1600px", "Large 3200px", maybe "Square 1080" for IG). Trade-off: preset proliferation and letterbox/crop decisions for aspect-mismatched presets — keep it to 2–3 width presets and skip aspect-forcing entirely at first.
 

@@ -87,7 +87,7 @@ function drawCoverCrop(
 }
 
 function exportFilename(chart: Pick<Chart, 'title' | 'name'>): string {
-  return `${chart.title || chart.name || 'mtg-chart'}.png`
+  return `${chart.title || chart.name || 'manachart'}.png`
 }
 
 // Disposal for the download path: anchor + click, with a deferred revoke (Safari

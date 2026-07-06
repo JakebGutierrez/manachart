@@ -7,7 +7,7 @@ All three gates pass clean (matching what both reviews reported):
 npm run build  → tsc -b && vite build → ✓ 48 modules, built in 109ms, no errors
 npm run lint   → eslint . → clean, no output
 npx vitest run → Test Files 6 passed (6) | Tests 68 passed (68)
-Source files I read to verify: useCharts.ts, App.tsx, shareLink.ts, chartShape.ts, useImport.ts, cellMap.ts, decklistParser.ts, useExport.ts, scryfall.ts, useScryfall.ts, Grid/index.tsx, PrintingSwitcher/index.tsx, SearchPanel/index.tsx, NameDisplay/index.tsx, ImportModal/index.tsx, ControlPanel/index.tsx (crop/color handlers), chart.ts, defaultChart.ts, main.tsx, plus MTG_Chart_Roadmap_Phase18plus.md and CLAUDE.md. Confirmed by grep: no error boundary exists anywhere in src/.
+Source files I read to verify: useCharts.ts, App.tsx, shareLink.ts, chartShape.ts, useImport.ts, cellMap.ts, decklistParser.ts, useExport.ts, scryfall.ts, useScryfall.ts, Grid/index.tsx, PrintingSwitcher/index.tsx, SearchPanel/index.tsx, NameDisplay/index.tsx, ImportModal/index.tsx, ControlPanel/index.tsx (crop/color handlers), chart.ts, defaultChart.ts, main.tsx, plus Mana_Chart_Roadmap_Phase18plus.md and CLAUDE.md. Confirmed by grep: no error boundary exists anywhere in src/.
 
 Steps 2 & 3 — Verified findings, by bucket
 Bucket A — Confirmed real, BOTH reviews caught it (highest signal)

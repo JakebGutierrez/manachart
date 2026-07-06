@@ -1,4 +1,4 @@
-# MTG Chart — Roadmap (Phase 18+)
+# Mana Chart — Roadmap (Phase 18+)
 
 This replaces the earlier enhancements handover. It reflects the current state of the repo (shipped through Phase 17, plus a partner-layout fix and a stopgap mobile drawer applied by patch) and sequences the remaining work.
 

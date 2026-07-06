@@ -417,7 +417,7 @@ export default function ControlPanel({
       inert={isDrawer && !drawerOpen}
     >
       <header className={styles.header}>
-        <span className={styles.logo}>MTG Chart</span>
+        <span className={styles.logo}>Mana Chart</span>
       </header>
 
       <div className={styles.body}>

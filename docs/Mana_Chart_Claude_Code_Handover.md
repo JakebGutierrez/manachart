@@ -1,4 +1,4 @@
-# MTG Chart — Claude Code Build Spec
+# Mana Chart — Claude Code Build Spec
 
 ## Working Agreement — Read This First
 
@@ -22,7 +22,7 @@ Never proceed to the next phase without explicit confirmation. If you hit an amb
 
 ## Overview
 
-Build a web application called **MTG Chart** — a Topsters-style collage builder for Magic: The Gathering cards. Users build a grid of MTG card art, customise layout and display options, then download the result as a PNG. Think Topsters (topsters3.com) but for MTG cards instead of albums.
+Build a web application called **Mana Chart** — a Topsters-style collage builder for Magic: The Gathering cards. Users build a grid of MTG card art, customise layout and display options, then download the result as a PNG. Think Topsters (topsters3.com) but for MTG cards instead of albums.
 
 A reference screenshot of the intended control-panel layout and aesthetic accompanies this spec (dark, minimal, single warm accent). The screenshot is a **visual target for the control panel only**. Where the screenshot and this written spec disagree, **this spec wins**.
 
