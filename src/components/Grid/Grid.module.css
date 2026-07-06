@@ -7,11 +7,18 @@
   padding: 32px;
 }
 
-/* Wraps canvas so it can use margin:auto for centering within the remaining space after notifications */
+/* The flexing canvas column (§2.a): takes the area's width up to the 900px
+   cap (so the grid inside has a definite container to fill — a shrink-wrapped
+   column would pin to the grid's preferred size and overflow on phones), and
+   uses margin:auto for centering within the remaining space after
+   notifications. The chart background hugs this column, so the cap is shared
+   by the grid + the chart's own padding. */
 .canvasGroup {
   display: flex;
   flex-direction: column;
   margin: auto;
+  width: 100%;
+  max-width: 900px;
 }
 
 .canvas {
@@ -37,18 +44,18 @@
 
 .grid {
   display: grid;
-  width: clamp(400px, 70vw, 900px);
+  /* Container-driven sizing (§2.a): fill the canvas column, 900px cap.
+     No viewport units, no 400px floor. When the name sidebar shares the row,
+     flex-shrink lets the grid give up width for it. */
+  width: min(100%, 900px);
   /* gap is set as an inline style from chart.cellGap */
 }
 
-/* Mobile: drop the 400px floor so the chart fits a phone, tighten padding */
-@media (max-width: 768px) {
-  .area {
-    padding: 60px 12px 12px;
-  }
-  .grid {
-    width: min(92vw, 900px);
-  }
+/* Drawer mode: tighten padding; clear the fixed hamburger (40px + 10px inset)
+   and the device safe areas (viewport-fit=cover). */
+[data-layout='drawer'] .area {
+  padding: calc(60px + env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
 }
 
 /* Row wrappers carry role="row" for grid semantics but must not affect layout —

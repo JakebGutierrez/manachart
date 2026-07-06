@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import type { Chart, Slot, NumericStyleField, NameDisplayMode, DisplayMode, HeroConfig } from '@/types/chart'
 import type { SortKey } from '@/utils/sort'
+import type { ShellLayout } from '@/hooks/useLayoutMode'
 import { ALLOWED_TITLE_FONTS } from '@/utils/shareLink'
-import { isMultiFaceLayout } from '@/utils/scryfall'
 import {
   supportsClipboardImage,
   supportsFileShare,
@@ -21,6 +21,7 @@ function getLayoutMode(heroConfig: HeroConfig): LayoutMode {
 import type { ExportScale } from '@/hooks/useExport'
 import type { SearchDragApi } from '@/interaction/moveApi'
 import SearchPanel from '@/components/SearchPanel'
+import SelectedCard from '@/components/SelectedCard'
 import Stepper from '@/components/Stepper'
 import styles from './ControlPanel.module.css'
 
@@ -70,7 +71,9 @@ interface Props {
   onCopyImage: () => Promise<void>
   onShareImage: () => Promise<void>
   onShareLink: () => Promise<void>
-  mobileOpen?: boolean
+  layoutMode: ShellLayout
+  drawerOpen: boolean
+  onDrawerClose: () => void
 }
 
 // A radiogroup that is one tab stop with standard arrow-key roving: the checked
@@ -271,150 +274,6 @@ function ChartPicker({
   )
 }
 
-// Minimum pointer travel (px) before a crop press counts as a drag. Touch
-// digitizers emit tiny sub-pixel pointermoves during a plain tap; without a
-// threshold those would push an undo snapshot and register as a zero-op drag.
-const CROP_DRAG_SLOP_PX = 4
-
-function CropEditor({
-  slot,
-  displayMode,
-  onCropDragBegin,
-  onCropLive,
-  onCropChange,
-}: {
-  slot: Slot
-  displayMode: DisplayMode
-  onCropDragBegin: () => void
-  onCropLive: (crop: CropValues) => void
-  onCropChange: (crop: CropValues) => void
-}) {
-  const previewRef = useRef<HTMLDivElement>(null)
-  const dragStateRef = useRef<{ pointerId: number; startX: number; startY: number; cropX: number; cropY: number } | null>(null)
-  const moveListenerRef = useRef<((e: PointerEvent) => void) | null>(null)
-  const upListenerRef = useRef<((e: PointerEvent) => void) | null>(null)
-
-  // Remove any active window listeners if the editor unmounts mid-drag (e.g. selected
-  // slot is cleared while the pointer is still down).
-  useEffect(() => () => {
-    if (moveListenerRef.current) window.removeEventListener('pointermove', moveListenerRef.current)
-    if (upListenerRef.current) {
-      window.removeEventListener('pointerup', upListenerRef.current)
-      window.removeEventListener('pointercancel', upListenerRef.current)
-    }
-  }, [])
-
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    // A second pointer landing mid-drag (multi-touch) must not restart the gesture.
-    if (dragStateRef.current) return
-    e.preventDefault()
-    // Capture keeps moves flowing after the pointer leaves the preview. It throws if
-    // the pointer is already up, and jsdom's implementation is partial — skip quietly.
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId)
-    } catch { /* ignore */ }
-    dragStateRef.current = {
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      startY: e.clientY,
-      cropX: slot.cropX,
-      cropY: slot.cropY,
-    }
-    // begun gates the history push so a click-without-move doesn't create a phantom
-    // undo entry. onCropDragBegin is called only on the first actual movement.
-    let begun = false
-
-    const handlePointerMove = (ev: PointerEvent) => {
-      if (!dragStateRef.current || ev.pointerId !== dragStateRef.current.pointerId) return
-      if (!previewRef.current) return
-      if (!begun) {
-        // Ignore sub-slop jitter so a tap doesn't register as a drag: no undo
-        // snapshot and no crop change until the pointer has actually travelled.
-        const movedX = ev.clientX - dragStateRef.current.startX
-        const movedY = ev.clientY - dragStateRef.current.startY
-        if (Math.hypot(movedX, movedY) < CROP_DRAG_SLOP_PX) return
-        begun = true
-        onCropDragBegin()
-      }
-      const rect = previewRef.current.getBoundingClientRect()
-      // Dragging right → image moves right → cropX decreases (reveal left side)
-      const dx = (ev.clientX - dragStateRef.current.startX) / rect.width
-      const dy = (ev.clientY - dragStateRef.current.startY) / rect.height
-      const newCropX = Math.max(0, Math.min(1, dragStateRef.current.cropX - dx))
-      const newCropY = Math.max(0, Math.min(1, dragStateRef.current.cropY - dy))
-      onCropLive({ cropX: newCropX, cropY: newCropY, cropScale: slot.cropScale })
-    }
-
-    const handlePointerUp = (ev: PointerEvent) => {
-      if (dragStateRef.current && ev.pointerId !== dragStateRef.current.pointerId) return
-      dragStateRef.current = null
-      moveListenerRef.current = null
-      upListenerRef.current = null
-      window.removeEventListener('pointermove', handlePointerMove)
-      window.removeEventListener('pointerup', handlePointerUp)
-      window.removeEventListener('pointercancel', handlePointerUp)
-    }
-
-    moveListenerRef.current = handlePointerMove
-    upListenerRef.current = handlePointerUp
-    window.addEventListener('pointermove', handlePointerMove)
-    window.addEventListener('pointerup', handlePointerUp)
-    window.addEventListener('pointercancel', handlePointerUp)
-  }, [slot.cropX, slot.cropY, slot.cropScale, onCropDragBegin, onCropLive])
-
-  const aspectRatio = displayMode === 'square' ? '1 / 1' : '4 / 3'
-
-  return (
-    <div>
-      <div
-        ref={previewRef}
-        className={styles.cropPreview}
-        style={{ aspectRatio }}
-        onPointerDown={handlePointerDown}
-      >
-        <img
-          className={styles.cropPreviewImg}
-          src={slot.kind === 'scryfall' ? slot.imageUris[slot.selectedFaceIndex].artCrop : slot.localImageDataUrl}
-          alt={slot.kind === 'scryfall' ? slot.cardName : slot.label}
-          // CORS-consistent with the export fetch so all art load paths share one
-          // cache entry (harmless on custom data: URLs). See Grid/index.tsx.
-          crossOrigin="anonymous"
-          draggable={false}
-          style={{
-            objectPosition: `${slot.cropX * 100}% ${slot.cropY * 100}%`,
-            ...(slot.cropScale !== 1.0 && {
-              transform: `scale(${slot.cropScale})`,
-              transformOrigin: `${slot.cropX * 100}% ${slot.cropY * 100}%`,
-            }),
-          }}
-        />
-      </div>
-      <div className={styles.cropRow}>
-        <span className={styles.label}>Zoom</span>
-        <input
-          type="range"
-          className={styles.cropZoomSlider}
-          min={1.0}
-          max={3.0}
-          step={0.05}
-          value={slot.cropScale}
-          onChange={(e) =>
-            onCropChange({ cropX: slot.cropX, cropY: slot.cropY, cropScale: Number(e.target.value) })
-          }
-        />
-        <span className={styles.value}>{slot.cropScale.toFixed(2)}×</span>
-      </div>
-      <button
-        type="button"
-        className={styles.cropResetBtn}
-        onClick={() => onCropChange({ cropX: 0.5, cropY: 0.5, cropScale: 1.0 })}
-      >
-        Reset
-      </button>
-    </div>
-  )
-}
-
 export default function ControlPanel({
   chart,
   charts,
@@ -459,8 +318,12 @@ export default function ControlPanel({
   onCopyImage,
   onShareImage,
   onShareLink,
-  mobileOpen,
+  layoutMode,
+  drawerOpen,
+  onDrawerClose,
 }: Props) {
+  const panelRef = useRef<HTMLElement>(null)
+  const isDrawer = layoutMode === 'drawer'
   const occupiedCount = chart.slots.filter((s) => s != null).length
   const [sortKey, setSortKey] = useState<SortKey>('type')
   const [copied, setCopied] = useState(false)
@@ -524,8 +387,35 @@ export default function ControlPanel({
     onShareLink().catch(() => {})
   }
 
+  // Drawer semantics (§2.a). On open, move focus into the panel so keyboard/AT
+  // users land where the interaction went; App restores focus to the toggle on
+  // close. The closed drawer is `inert` (JSX below) + visibility:hidden (CSS),
+  // which is what actually removes its controls from the tab order and the
+  // accessibility tree — the old drawer kept them tabbable while off-screen.
+  useEffect(() => {
+    if (isDrawer && drawerOpen) panelRef.current?.focus()
+  }, [isDrawer, drawerOpen])
+
+  // Escape closes the open drawer — unless a modal dialog is stacked above it,
+  // in which case Escape belongs to the dialog (which has its own listener).
+  useEffect(() => {
+    if (!isDrawer || !drawerOpen) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== 'Escape') return
+      if (document.querySelector('[role="dialog"]')) return
+      onDrawerClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isDrawer, drawerOpen, onDrawerClose])
+
   return (
-    <aside className={`${styles.panel} ${mobileOpen ? styles.panelOpen : ''}`}>
+    <aside
+      ref={panelRef}
+      className={`${styles.panel} ${drawerOpen ? styles.panelOpen : ''}`}
+      tabIndex={-1}
+      inert={isDrawer && !drawerOpen}
+    >
       <header className={styles.header}>
         <span className={styles.logo}>MTG Chart</span>
       </header>
@@ -555,52 +445,20 @@ export default function ControlPanel({
           <SearchPanel chart={chart} onSlotFill={onSlotFill} searchDrag={searchDrag} />
         </section>
 
-        {selectedSlot && (
+        {/* In drawer mode the Selected-card surface lives in the bottom sheet
+            (§7.1b — App renders the same component there); the drawer keeps
+            chart-level settings + search. */}
+        {selectedSlot && layoutMode === 'docked' && (
           <section className={styles.section}>
             <h2 className={styles.sectionLabel}>Selected card</h2>
-            <p className={styles.selectedName}>
-              {selectedSlot.kind === 'scryfall' ? selectedSlot.cardName : selectedSlot.label}
-            </p>
-            {/* Canonical, always-visible action surface — the keyboard/touch home
-                for actions that otherwise live only on hover buttons or right-click. */}
-            <div className={styles.selectedActions}>
-              <button
-                type="button"
-                className={`${styles.selectedActionBtn} ${styles.selectedActionBtnDanger}`}
-                onClick={onSelectedRemove}
-              >
-                Remove
-              </button>
-              {selectedSlot.kind === 'scryfall' &&
-                isMultiFaceLayout(selectedSlot.layout) &&
-                selectedSlot.imageUris.length > 1 && (
-                <button type="button" className={styles.selectedActionBtn} onClick={onSelectedFlip}>
-                  Flip
-                </button>
-              )}
-              {selectedSlot.kind === 'scryfall' && (
-                <button
-                  type="button"
-                  className={styles.selectedActionBtn}
-                  onClick={onSelectedSwitchPrinting}
-                >
-                  Switch printing
-                </button>
-              )}
-              {/* Arms move mode: then arrow+Enter (keyboard) or tap a target cell
-                  (pointer) to drop. Toggles off / cancels when already armed. */}
-              <button
-                type="button"
-                className={`${styles.selectedActionBtn}${moveArmed ? ` ${styles.selectedActionBtnActive}` : ''}`}
-                aria-pressed={moveArmed}
-                onClick={onArmMove}
-              >
-                {moveArmed ? 'Cancel move' : 'Move'}
-              </button>
-            </div>
-            <CropEditor
+            <SelectedCard
               slot={selectedSlot}
               displayMode={chart.displayMode}
+              onRemove={onSelectedRemove}
+              onFlip={onSelectedFlip}
+              onSwitchPrinting={onSelectedSwitchPrinting}
+              onArmMove={onArmMove}
+              moveArmed={moveArmed}
               onCropDragBegin={onCropDragBegin}
               onCropLive={onCropLive}
               onCropChange={onCropChange}

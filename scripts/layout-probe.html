@@ -1,0 +1,66 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>{"pending":true}</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+      iframe {
+        border: 0;
+        width: 100vw;
+        height: 100vh;
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Measurer for scripts/layout-probe.mjs: frames the REAL app same-origin
+         (served by the same vite dev server), waits for it to mount, then
+         writes layout measurements as JSON into this page's <title>, which
+         headless Chrome's dump-dom exposes to the probe script. Media queries
+         and matchMedia inside the iframe respond to the iframe's own viewport,
+         which is the browser window size the probe sets per run. -->
+    <iframe src="/"></iframe>
+    <script>
+      const iframe = document.querySelector('iframe')
+      const started = Date.now()
+
+      function report(payload) {
+        document.title = JSON.stringify(payload)
+      }
+
+      function measure() {
+        const doc = iframe.contentDocument
+        const app = doc && doc.querySelector('.app[data-layout]')
+        if (!doc || !app) {
+          if (Date.now() - started > 15000) {
+            report({ error: 'app did not mount within 15s' })
+            return
+          }
+          setTimeout(measure, 50)
+          return
+        }
+        // One more tick so layout settles after the stamping render.
+        setTimeout(() => {
+          const root = doc.documentElement
+          const area = doc.querySelector('main')
+          const grid = doc.querySelector('[role="grid"]')
+          report({
+            viewport: iframe.contentWindow.innerWidth,
+            dataLayout: app.getAttribute('data-layout'),
+            docOverflowX: root.scrollWidth > root.clientWidth,
+            appOverflowX: app.scrollWidth > app.clientWidth,
+            areaOverflowX: area ? area.scrollWidth > area.clientWidth : null,
+            gridWidth: grid ? Math.round(grid.getBoundingClientRect().width) : null,
+          })
+        }, 100)
+      }
+
+      iframe.addEventListener('load', measure)
+    </script>
+  </body>
+</html>
