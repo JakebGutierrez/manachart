@@ -1,5 +1,12 @@
 # Mana Chart — Roadmap (Phase 18+)
 
+> **Historical record — superseded July 2026.** Everything below is the plan as
+> written before Phases 18–22.5, the UI overhaul (Phases 0–4), and the rename
+> shipped. The living status doc is [docs/roadmap.md](docs/roadmap.md); do not
+> act on this file. The "currently red" test suite note, the stopgap drawer, and
+> the phase plans are all long resolved — see [docs/tech-debt.md](docs/tech-debt.md)
+> and [docs/decisions.md](docs/decisions.md) for what is actually live.
+
 This replaces the earlier enhancements handover. It reflects the current state of the repo (shipped through Phase 17, plus a partner-layout fix and a stopgap mobile drawer applied by patch) and sequences the remaining work.
 
 ## Working Agreement — Read This First

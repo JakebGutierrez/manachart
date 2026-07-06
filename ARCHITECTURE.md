@@ -598,7 +598,7 @@ SearchPanel), crop fields included.
 - **Font selection** — shipped: five self-hosted `@fontsource` families (CSP forces
   self-hosting), `ALLOWED_TITLE_FONTS` allowlist shared by the picker and the share
   codec, explicit `document.fonts.load` before canvas title draw.
-- **True print-resolution export** — **dropped** (`Mana_Chart_Roadmap_Phase18plus.md`:
+- **True print-resolution export** — **dropped** (`docs/roadmap.md`:
   do not build).
 - **Supabase backend** — **dropped** (same roadmap: localStorage + share links cover
   save/share; out of scope indefinitely).
@@ -735,7 +735,7 @@ on success/claim (legacy links strip immediately — they never reconstruct).
 
 ## Later / Dropped (reference)
 
-Still future (see `Mana_Chart_Roadmap_Phase18plus.md`):
+Still future (see `docs/roadmap.md`):
 1. **Freeform hero placement** — click to promote a cell to hero, drag to resize.
 2. **Card languages** via Scryfall `lang:` (low priority).
 

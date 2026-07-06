@@ -7,8 +7,8 @@ Each item: what it is, where it lives, why it's like that, risk if left, rough e
 (S < ½ day, M ½–2 days, L > 2 days).
 
 Deliberate product/architecture decisions (old-brand localStorage keys, the
-no-new-runtime-deps ethos, etc.) are **not** debt and live in the decision log, not
-here. Doc drift in `ARCHITECTURE.md`/`CLAUDE.md` is tracked by the audit findings,
+no-new-runtime-deps ethos, etc.) are **not** debt and live in the decision log
+([decisions.md](decisions.md)), not here. Doc drift in `ARCHITECTURE.md`/`CLAUDE.md` is tracked by the audit findings,
 not duplicated here.
 
 ---
@@ -269,7 +269,7 @@ this list exists so nobody "simplifies" one away.
 
 ---
 
-## G. Known limitations (deliberate — check the decision log before "fixing")
+## G. Known limitations (deliberate — check [decisions.md](decisions.md) before "fixing")
 
 - **G1 — `artCrop` is the only rendered/exported image.** Low-res interpolation on
   big cells (1×1, 2×2). `normal` is stored per face for a future manual-framing
