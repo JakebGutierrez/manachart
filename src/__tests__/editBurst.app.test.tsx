@@ -48,8 +48,8 @@ afterEach(() => {
 describe('edit-burst resets on chart switch (Fix 1)', () => {
   it("makes chart B's first title edit undoable after editing chart A's title", () => {
     // Two charts; Alpha is active.
-    store.set('mtg-chart:charts', JSON.stringify([makeChart('a', 'Alpha'), makeChart('b', 'Beta')]))
-    store.set('mtg-chart:activeId', 'a')
+    store.set('manachart:charts', JSON.stringify([makeChart('a', 'Alpha'), makeChart('b', 'Beta')]))
+    store.set('manachart:activeId', 'a')
 
     const { container, unmount } = renderComponent(<App />)
     try {

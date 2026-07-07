@@ -86,8 +86,8 @@ function openCropEditor(container: HTMLElement): HTMLElement {
 
 describe('crop drag slop threshold', () => {
   it('a pure tap (sub-slop) pushes no undo entry', () => {
-    store.set('mtg-chart:charts', JSON.stringify([makeChart([makeSlot('Bolt')])]))
-    store.set('mtg-chart:activeId', 'a')
+    store.set('manachart:charts', JSON.stringify([makeChart([makeSlot('Bolt')])]))
+    store.set('manachart:activeId', 'a')
     const { container, unmount } = renderComponent(<App />)
     try {
       const preview = openCropEditor(container)
@@ -105,8 +105,8 @@ describe('crop drag slop threshold', () => {
   })
 
   it('a real drag (past slop) pushes exactly one undo entry', () => {
-    store.set('mtg-chart:charts', JSON.stringify([makeChart([makeSlot('Bolt')])]))
-    store.set('mtg-chart:activeId', 'a')
+    store.set('manachart:charts', JSON.stringify([makeChart([makeSlot('Bolt')])]))
+    store.set('manachart:activeId', 'a')
     const { container, unmount } = renderComponent(<App />)
     try {
       const preview = openCropEditor(container)

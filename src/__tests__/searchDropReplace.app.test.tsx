@@ -38,8 +38,8 @@ function seedFull() {
     backgroundColor: '#0b0c0e', cellGap: 4, padding: 16, cornerRadius: 4,
     slots: [oldCard()], // 1×1 grid, filled → full
   }
-  store.set('mtg-chart:charts', JSON.stringify([chart]))
-  store.set('mtg-chart:activeId', 'a')
+  store.set('manachart:charts', JSON.stringify([chart]))
+  store.set('manachart:activeId', 'a')
 }
 
 function pointer(target: EventTarget, type: string, x: number, y: number, init: PointerEventInit = {}) {

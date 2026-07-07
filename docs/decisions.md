@@ -18,16 +18,45 @@ renumber.
 Things that look wrong, half-done, or "fixable" and are none of those. **Check
 here before fixing anything that looks odd.**
 
-### 1. localStorage keys keep the old brand (`mtg-chart:*`)
+### 1. localStorage keys renamed to `manachart:*` with a one-time migration
+
+**Superseded 2026-07-07.** The keys were renamed to match the brand, backed by a
+one-time migration. The original keep is preserved below as history because it
+explains *why the rename was safe to do when it was, and would not be later.*
+
+- **Decided (now):** the live keys are `manachart:charts` / `manachart:activeId`
+  ([useCharts.ts:11-12](../src/hooks/useCharts.ts#L11-L12)). A one-time,
+  non-destructive migration (`migrateStorageKeys`,
+  [useCharts.ts:31](../src/hooks/useCharts.ts#L31)) copies the legacy
+  `mtg-chart:*` keys forward on load — each key independently, before the parse →
+  `isChartShaped` → `migrateAll` → sanitize chain, leaving the legacy keys in
+  place. Full spec: [contracts.md](contracts.md) §1.
+- **Why now:** the app is pre-launch with effectively no users, so the rename is
+  cheap *today* — and the migration means even an unknown early visitor (or the
+  owner's own browser) keeps their charts. Finishing the rebrand while the blast
+  radius is zero avoids carrying a brand mismatch in user-facing storage forever.
+- **Why the migration anyway:** the whole reason the original keep existed is
+  that a bare rename orphans data in browsers we don't control. A read-old/copy-new
+  step is exactly the missing piece, so the rename ships *with* it rather than
+  betting there are truly zero installs.
+- **Do not:** rename these keys *again* without a fresh migration and a reason —
+  post-launch the original hazard returns in full. And do not delete the legacy
+  keys or the migration: it is idempotent and non-destructive on purpose (an
+  older-build round-trip must still find its data).
+
+<details><summary>Original decision (kept as history — why the rename was deferred at handoff)</summary>
 
 - **Decided:** `mtg-chart:charts` / `mtg-chart:activeId` survive the Mana Chart
-  rename ([useCharts.ts:11-12](../src/hooks/useCharts.ts#L11-L12)).
+  rename.
 - **Why:** they are user-data keys. No key migration shipped with the rename, so
   renaming them silently orphans every existing user's saved charts.
-- **Rejected:** a read-old/write-new migration — real work and real risk for zero
-  user-visible benefit; the strings are invisible to users.
+- **Rejected:** a read-old/write-new migration — judged real work and real risk
+  for zero user-visible benefit; the strings are invisible to users. *(This is the
+  call that was revisited: pre-launch, the "risk" is near-zero and the migration
+  is ~15 lines, so the cost/benefit inverted.)*
 - **Do not:** "finish the rename" here, ever, without a migration *and* a reason.
-  See [contracts.md](contracts.md) §1.
+
+</details>
 
 ### 2. Hand-rolled, no-new-runtime-deps architecture
 

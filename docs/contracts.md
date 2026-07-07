@@ -20,17 +20,33 @@
 
 | Key | Value | Written by |
 |---|---|---|
-| `mtg-chart:charts` | `JSON.stringify(Chart[])` | [useCharts.ts:11](../src/hooks/useCharts.ts#L11) |
-| `mtg-chart:activeId` | plain string (chart id, **not** JSON) | [useCharts.ts:12](../src/hooks/useCharts.ts#L12) |
+| `manachart:charts` | `JSON.stringify(Chart[])` | [useCharts.ts:11](../src/hooks/useCharts.ts#L11) |
+| `manachart:activeId` | plain string (chart id, **not** JSON) | [useCharts.ts:12](../src/hooks/useCharts.ts#L12) |
 
-The `mtg-chart` prefix predates the Mana Chart rename **on purpose** — these are
-user-data keys, no key migration ever shipped, and renaming them orphans every
-existing user's charts ([decisions.md](decisions.md) §1). Do not "finish the
-rename" here.
+These are the live user-data keys. The `manachart:*` prefix replaced the
+pre-rebrand `mtg-chart:*` prefix in a one-time, migration-backed rename done
+pre-launch ([decisions.md](decisions.md) §1). **Do not rename them again** without
+a fresh migration and a reason: user data lives in browsers we don't control, so a
+rename with no read-old path silently orphans every existing chart.
+
+### Legacy keys — read once, on the migration path only
+
+| Legacy key | Superseded by |
+|---|---|
+| `mtg-chart:charts` | `manachart:charts` |
+| `mtg-chart:activeId` | `manachart:activeId` |
+
+`migrateStorageKeys` ([useCharts.ts:31](../src/hooks/useCharts.ts#L31)) runs at the
+top of `loadOrInit`, **before** the load chain below. For each key independently:
+if the `manachart:*` key is absent but the `mtg-chart:*` key has data, it copies
+legacy → new. It is idempotent (new key present → no-op) and **non-destructive** —
+the legacy keys are left in place, so a round-trip to an older build still finds
+its data. Never write to the legacy keys; treat them as a read-once source that
+existing installs may still carry.
 
 ### Value shape
 
-`mtg-chart:charts` is an array of `Chart` objects exactly as typed in
+`manachart:charts` is an array of `Chart` objects exactly as typed in
 [src/types/chart.ts](../src/types/chart.ts) — including `id`, `schemaVersion`, and
 the sparse visual-cell-indexed `slots: Array<Slot | null>`. Custom slots embed the
 full image as a data URL (`localImageDataUrl`), which is why quota can be
@@ -55,9 +71,10 @@ rollback without losing charts a newer build wrote.
 
 ### Load path (order matters)
 
-`loadFromStorageOrDefault` ([useCharts.ts:109-129](../src/hooks/useCharts.ts#L109-L129)):
+`loadFromStorageOrDefault` ([useCharts.ts:109-129](../src/hooks/useCharts.ts#L109-L129)),
+after `migrateStorageKeys` has already carried any legacy store forward:
 
-1. `JSON.parse` the `mtg-chart:charts` value.
+1. `JSON.parse` the `manachart:charts` value.
 2. Structural gate: array, non-empty, **every** element passes `isChartShaped`
    ([chartShape.ts:39-49](../src/utils/chartShape.ts#L39-L49)) — string `id`,
    numeric dims, `slots` array whose every slot is well-shaped (scryfall slots:
@@ -282,7 +299,8 @@ allocation flowing through the shared `exportPixelDims` so they can't disagree
   kept forever, like the Phase 16 one.
 
 **Never change:**
-- The key strings `mtg-chart:charts` / `mtg-chart:activeId`.
+- The key strings `manachart:charts` / `manachart:activeId`, and the read-once
+  legacy migration from `mtg-chart:charts` / `mtg-chart:activeId`.
 - The `?c=` param name.
 - The lz-string `compressToEncodedURIComponent` encoding for `v: 1` payloads,
   and the Phase 16 base64 legacy decode path.

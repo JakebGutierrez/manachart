@@ -44,8 +44,8 @@ function makeChart(slots: Array<Slot | null>): Chart {
 }
 
 function seedChart(slots: Array<Slot | null>) {
-  store.set('mtg-chart:charts', JSON.stringify([makeChart(slots)]))
-  store.set('mtg-chart:activeId', 'a')
+  store.set('manachart:charts', JSON.stringify([makeChart(slots)]))
+  store.set('manachart:activeId', 'a')
 }
 
 function cell(container: HTMLElement, slotIndex: number): HTMLElement {
@@ -386,8 +386,8 @@ function seedCommander(slots: Array<Slot | null>) {
     heroConfig: [{ row: 0, col: 0, rowSpan: 2, colSpan: 2 }],
     slots,
   }
-  store.set('mtg-chart:charts', JSON.stringify([chart]))
-  store.set('mtg-chart:activeId', 'a')
+  store.set('manachart:charts', JSON.stringify([chart]))
+  store.set('manachart:activeId', 'a')
 }
 
 describe('drop-target resolution over a hero', () => {

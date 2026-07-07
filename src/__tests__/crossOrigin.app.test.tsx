@@ -46,8 +46,8 @@ function seedChart() {
     backgroundColor: '#0b0c0e', cellGap: 4, padding: 16, cornerRadius: 4,
     slots: [gridSlot()],
   }
-  store.set('mtg-chart:charts', JSON.stringify([chart]))
-  store.set('mtg-chart:activeId', 'a')
+  store.set('manachart:charts', JSON.stringify([chart]))
+  store.set('manachart:activeId', 'a')
 }
 
 function httpImgs(root: ParentNode): HTMLImageElement[] {

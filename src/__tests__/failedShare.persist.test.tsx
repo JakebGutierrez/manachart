@@ -108,8 +108,8 @@ describe('failed-share placeholder claim + persistence (Fix 2)', () => {
   })
 
   it('failed share + delete the other stored chart → reload → it stays deleted', async () => {
-    store.set('mtg-chart:charts', JSON.stringify([makeChart('s1', 'Stored')]))
-    store.set('mtg-chart:activeId', 's1')
+    store.set('manachart:charts', JSON.stringify([makeChart('s1', 'Stored')]))
+    store.set('manachart:activeId', 's1')
     openFailedShare()
 
     const { result, unmount } = renderHook(() => useCharts())

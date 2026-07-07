@@ -58,8 +58,8 @@ function makeChart(id: string, name: string, slots: Array<Slot | null>): Chart {
 }
 
 function seedCharts(charts: Chart[], activeId: string) {
-  store.set('mtg-chart:charts', JSON.stringify(charts))
-  store.set('mtg-chart:activeId', activeId)
+  store.set('manachart:charts', JSON.stringify(charts))
+  store.set('manachart:activeId', activeId)
 }
 
 // Controllable matchMedia stub; without it jsdom has no matchMedia and the

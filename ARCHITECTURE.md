@@ -549,8 +549,10 @@ from the already-fetched result set — no second fetch.
 ### Phase 9 — Persistence + Multiple Charts — **shipped**
 As planned, with one drift: `updateChart` takes an updater `(prev: Chart) => Chart`,
 not a modified-chart object.
-- `useCharts` hook: `charts[]` + `activeId` in localStorage under `mtg-chart:charts` /
-  `mtg-chart:activeId`. CRUD: `createChart`, `deleteChart`, `updateChart`, `setActiveId`.
+- `useCharts` hook: `charts[]` + `activeId` in localStorage under `manachart:charts` /
+  `manachart:activeId` (renamed pre-launch from the legacy `mtg-chart:*` keys via a
+  one-time non-destructive migration, `migrateStorageKeys`). CRUD: `createChart`,
+  `deleteChart`, `updateChart`, `setActiveId`.
 - `schemaVersion.ts` migration runner: `migrate(chart)` chain, `migrateAll(charts[])`.
 - Chart picker UI in `ControlPanel` above Search: list of chart names, active highlighted,
   `+` to create, `×` to delete (hidden if only one), inline name edit on active chart.

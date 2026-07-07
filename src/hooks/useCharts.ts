@@ -8,8 +8,40 @@ import { fetchCollectionSlots } from '@/utils/reconstruct'
 import { sanitizeChartConfig, chartCapacity } from '@/utils/sanitizeChart'
 import { duplicateChart as cloneChart } from '@/utils/duplicateChart'
 
-const CHARTS_KEY = 'mtg-chart:charts'
-const ACTIVE_ID_KEY = 'mtg-chart:activeId'
+const CHARTS_KEY = 'manachart:charts'
+const ACTIVE_ID_KEY = 'manachart:activeId'
+
+// Legacy pre-rebrand key names. The Mana Chart rename shipped with these still in
+// use; the rename was finished pre-launch (see docs/decisions.md §1) with the
+// one-time migration below carrying any existing store forward. Read-only source —
+// never written to after the rename.
+const LEGACY_CHARTS_KEY = 'mtg-chart:charts'
+const LEGACY_ACTIVE_ID_KEY = 'mtg-chart:activeId'
+
+// One-time key rename migration (mtg-chart:* → manachart:*). For each key
+// independently: if the new key is absent but the legacy key has data, copy legacy
+// → new. Runs at the top of loadOrInit — BEFORE the parse → isChartShaped →
+// migrateAll → sanitizeChartConfig chain, which it does not touch — so every read
+// path (normal, share-link, error fallback) sees the new keys already populated.
+// The legacy keys are deliberately NOT deleted: harmless to leave, keeps the
+// migration idempotent, and lets a user who round-trips to an older build still
+// find their charts. The two keys migrate independently so a store with charts but
+// no activeId (or vice versa) still carries over. Wrapped so a storage throw
+// (disabled/blocked) can't crash the load — there's simply nothing to migrate then.
+export function migrateStorageKeys(): void {
+  try {
+    if (localStorage.getItem(CHARTS_KEY) === null) {
+      const legacy = localStorage.getItem(LEGACY_CHARTS_KEY)
+      if (legacy !== null) localStorage.setItem(CHARTS_KEY, legacy)
+    }
+    if (localStorage.getItem(ACTIVE_ID_KEY) === null) {
+      const legacy = localStorage.getItem(LEGACY_ACTIVE_ID_KEY)
+      if (legacy !== null) localStorage.setItem(ACTIVE_ID_KEY, legacy)
+    }
+  } catch {
+    /* storage disabled/blocked — nothing to migrate */
+  }
+}
 
 // Two separate writes — not atomic. A crash between them leaves one key stale.
 // loadOrInit recovers by falling back to charts[0] when activeId is unrecognised,
@@ -229,6 +261,8 @@ export function applyReconstructionFailure(
 // Does not call replaceState — a post-mount useEffect in useCharts does that,
 // conditional on consumedShareParam so malformed ?c= params are left untouched.
 export function loadOrInit(): ChartsState {
+  // Carry any pre-rebrand store forward before any read path touches storage.
+  migrateStorageKeys()
   const param = new URLSearchParams(window.location.search).get('c')
   if (param) {
     const result = decodeSharePayload(param)

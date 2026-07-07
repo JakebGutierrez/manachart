@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Looks wrong, isn't — check `docs/decisions.md` first
 
-- localStorage keys still say `mtg-chart:*` — user-data keys; renaming them orphans every saved chart (§1)
+- localStorage keys are `manachart:*` — renamed pre-launch from `mtg-chart:*` via a one-time, non-destructive migration (`migrateStorageKeys`, read-once legacy path); don't delete that path or rename again without a fresh migration (§1)
 - No runtime deps beyond react + lz-string — hand-rolled on purpose; a new dep needs owner sign-off (§2)
 - `public/og-image.png` shows the old branding — the repo's one tracked TODO; the meta tags are already correct (§3)
 - Grid shrink recompacts cards instead of blocking — adjudicated behaviour, not a bug (§5)
@@ -121,10 +121,12 @@ intentionally not a dialog (see above).
 ## State
 
 Chart state lives in the `useCharts` hook (`src/hooks/useCharts.ts`): a localStorage-persisted
-multi-chart store (`charts[]` + `activeId` under `mtg-chart:charts` / `mtg-chart:activeId` —
-these key names keep the pre-rename brand ON PURPOSE: they are user-data keys, and renaming
-them would orphan every existing user's saved charts; no migration shipped, so don't "finish
-the rename" here) with CRUD (`createChart`, `duplicateChart`, `deleteChart`, `renameChart`,
+multi-chart store (`charts[]` + `activeId` under `manachart:charts` / `manachart:activeId` —
+renamed pre-launch from the `mtg-chart:*` brand via a one-time, non-destructive migration
+(`migrateStorageKeys`, runs at the top of `loadOrInit` before the parse/migrate/sanitize
+chain and copies legacy → new per-key, leaving the legacy keys intact); these are user-data
+keys, so don't rename again without a fresh migration, and don't delete the legacy read
+path) with CRUD (`createChart`, `duplicateChart`, `deleteChart`, `renameChart`,
 `setActiveId`, and `updateChart` — which takes an updater `(prev: Chart) => Chart`, never a
 plain object) and share-link reconstruction. When the app loads with a `?c=` share payload, `loadOrInit` returns a
 placeholder chart plus a `pendingReconstruction` stub list; a `useEffect` batches the stubs

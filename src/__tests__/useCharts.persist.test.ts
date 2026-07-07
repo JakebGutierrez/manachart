@@ -53,8 +53,8 @@ afterEach(() => {
 describe('safeWrite', () => {
   it('returns ok and writes both keys on success', () => {
     expect(safeWrite([makeChart('a')], 'a')).toEqual({ ok: true })
-    expect(store.get('mtg-chart:activeId')).toBe('a')
-    expect(store.get('mtg-chart:charts')).toContain('"id":"a"')
+    expect(store.get('manachart:activeId')).toBe('a')
+    expect(store.get('manachart:charts')).toContain('"id":"a"')
   })
 
   it('returns ok:false instead of throwing when setItem throws QuotaExceededError', () => {

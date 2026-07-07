@@ -59,8 +59,8 @@ describe('loadOrInit — localStorage paths', () => {
 
   it('restores charts and active ID from valid stored JSON', () => {
     const chart = makeStoredChart({ id: 'chart-a' })
-    localStorageStub.setItem('mtg-chart:charts', JSON.stringify([chart]))
-    localStorageStub.setItem('mtg-chart:activeId', 'chart-a')
+    localStorageStub.setItem('manachart:charts', JSON.stringify([chart]))
+    localStorageStub.setItem('manachart:activeId', 'chart-a')
 
     const { charts, activeId } = loadOrInit()
     expect(charts).toHaveLength(1)
@@ -70,7 +70,7 @@ describe('loadOrInit — localStorage paths', () => {
   })
 
   it('falls back to a fresh default when stored JSON is malformed', () => {
-    localStorageStub.setItem('mtg-chart:charts', 'not valid json{{{')
+    localStorageStub.setItem('manachart:charts', 'not valid json{{{')
     const { charts, activeId } = loadOrInit()
     expect(charts).toHaveLength(1)
     expect(activeId).toBe(charts[0].id)
@@ -78,8 +78,8 @@ describe('loadOrInit — localStorage paths', () => {
 
   it('falls back to charts[0].id when activeId in storage does not match any chart', () => {
     const chart = makeStoredChart({ id: 'chart-b' })
-    localStorageStub.setItem('mtg-chart:charts', JSON.stringify([chart]))
-    localStorageStub.setItem('mtg-chart:activeId', 'nonexistent-id')
+    localStorageStub.setItem('manachart:charts', JSON.stringify([chart]))
+    localStorageStub.setItem('manachart:activeId', 'nonexistent-id')
 
     const { charts, activeId } = loadOrInit()
     expect(activeId).toBe(charts[0].id)
@@ -90,8 +90,8 @@ describe('loadOrInit — all-or-nothing store abandonment (contracts.md §1: no 
   it('ONE malformed chart among valid ones abandons the ENTIRE store — do not "improve" this into per-chart salvage without updating contracts.md first', () => {
     const good = makeStoredChart({ id: 'good-chart' })
     const bad = { id: 42, gridRows: 'nope' } // fails isChartShaped
-    localStorageStub.setItem('mtg-chart:charts', JSON.stringify([good, bad]))
-    localStorageStub.setItem('mtg-chart:activeId', 'good-chart')
+    localStorageStub.setItem('manachart:charts', JSON.stringify([good, bad]))
+    localStorageStub.setItem('manachart:activeId', 'good-chart')
 
     const { charts, activeId } = loadOrInit()
     expect(charts).toHaveLength(1)
@@ -100,7 +100,7 @@ describe('loadOrInit — all-or-nothing store abandonment (contracts.md §1: no 
   })
 
   it('an empty stored array is abandoned (the non-empty gate) — fresh default instead', () => {
-    localStorageStub.setItem('mtg-chart:charts', JSON.stringify([]))
+    localStorageStub.setItem('manachart:charts', JSON.stringify([]))
     const { charts } = loadOrInit()
     expect(charts).toHaveLength(1)
     expect(charts[0].schemaVersion).toBe(4)
@@ -140,8 +140,8 @@ describe('loadOrInit — load-path order (contracts.md §1: parse → isChartSha
         null,
       ],
     }
-    localStorageStub.setItem('mtg-chart:charts', JSON.stringify([v1Chart]))
-    localStorageStub.setItem('mtg-chart:activeId', 'v1-survivor')
+    localStorageStub.setItem('manachart:charts', JSON.stringify([v1Chart]))
+    localStorageStub.setItem('manachart:activeId', 'v1-survivor')
 
     const { charts, activeId } = loadOrInit()
     // Not abandoned: the v1 chart survived the shape gate.
@@ -187,7 +187,7 @@ describe('loadOrInit — share link paths', () => {
 
   it('compact ?c=: appends placeholder to existing stored charts', () => {
     const stored = makeStoredChart({ id: 'existing-1' })
-    localStorageStub.setItem('mtg-chart:charts', JSON.stringify([stored]))
+    localStorageStub.setItem('manachart:charts', JSON.stringify([stored]))
 
     const chart = makeStoredChart({ name: 'Imported', id: 'other-id' })
     const { encoded } = encodeShareLink(chart)
@@ -245,7 +245,7 @@ describe('loadOrInit — share link paths', () => {
 
   it('invalid ?c=: existing stored charts are preserved on error', () => {
     const stored = makeStoredChart({ id: 'my-chart' })
-    localStorageStub.setItem('mtg-chart:charts', JSON.stringify([stored]))
+    localStorageStub.setItem('manachart:charts', JSON.stringify([stored]))
     window.history.pushState({}, '', '/?c=!!!totally-invalid!!!')
 
     const state = loadOrInit()

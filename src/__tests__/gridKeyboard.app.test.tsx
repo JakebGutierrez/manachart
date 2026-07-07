@@ -57,8 +57,8 @@ function makeChart(slots: Array<Slot | null>): Chart {
 }
 
 function seedChart(slots: Array<Slot | null>) {
-  store.set('mtg-chart:charts', JSON.stringify([makeChart(slots)]))
-  store.set('mtg-chart:activeId', 'a')
+  store.set('manachart:charts', JSON.stringify([makeChart(slots)]))
+  store.set('manachart:activeId', 'a')
 }
 
 function cell(container: HTMLElement, slotIndex: number): HTMLElement {
