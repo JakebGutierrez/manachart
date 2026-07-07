@@ -1,5 +1,12 @@
 # Mana Chart — Claude Code Build Spec
 
+> **Historical record — do not act on this file.** This is the original pre-build
+> spec; the app it describes has long since shipped (and diverged where later
+> decisions superseded it). The living docs are `ARCHITECTURE.md`,
+> [roadmap.md](roadmap.md), [decisions.md](decisions.md),
+> [contracts.md](contracts.md), and [tech-debt.md](tech-debt.md); the working
+> agreement now lives in CLAUDE.md.
+
 ## Working Agreement — Read This First
 
 Do not start building yet.

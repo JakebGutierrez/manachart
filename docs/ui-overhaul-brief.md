@@ -1,6 +1,6 @@
 # UI Overhaul — Architecture & Design Brief (July 2026)
 
-**Status: planning document. No code was written or changed in this session. Awaiting owner review before any implementation phase begins.**
+**Status (July 2026 handoff): Phases 0–4 of this brief shipped (see [roadmap.md](roadmap.md)); Phase 5 (motion tokens) never ran ([tech-debt.md](tech-debt.md) B1). §1's current-state audit describes the pre-overhaul code and is historical; the design rationale — especially the §3 interaction grammar — is live and cited by §number from CLAUDE.md, [decisions.md](decisions.md), and [tech-debt.md](tech-debt.md).** *(Original status: planning document, awaiting owner review.)*
 
 Scope contract for this document, restated from the commissioning brief:
 

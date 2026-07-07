@@ -5,7 +5,7 @@ rejected, and what a future session must **not** do. Written July 2026 at handof
 formalizing the deliberate-keeps draft from the audit. Companion docs:
 [contracts.md](contracts.md) (the compatibility surfaces these decisions protect),
 [tech-debt.md](tech-debt.md) (known debt — some entries here have a debt item
-attached), `docs/ui-overhaul-brief.md` (§ references below).
+attached), [ui-overhaul-brief.md](ui-overhaul-brief.md) (§ references below).
 
 Add an entry whenever a decision's rationale won't be obvious from the code in a
 year. Entries are numbered stably — other docs cite them by number; append, don't

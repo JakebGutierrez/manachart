@@ -3,8 +3,10 @@
 *Rewritten July 2026 (handoff audit) to match the shipped code: schema v4, the
 UI-interaction overhaul (Phases 0–4 of `docs/ui-overhaul-brief.md`), and the brand
 rename. The source is canonical; where this document and the code disagree, the code
-wins and the doc is the bug. Known debt and deliberate quirks live in
-`docs/tech-debt.md` — check it before "fixing" anything that looks odd.*
+wins and the doc is the bug. Compatibility surfaces (storage keys, share-link codec,
+schema) are specified in `docs/contracts.md`; decision rationale and rejected
+alternatives in `docs/decisions.md`; known debt and platform quirks in
+`docs/tech-debt.md` — check those before "fixing" anything that looks odd.*
 
 ## Overview
 
@@ -74,7 +76,7 @@ src/
     shareLink.ts        # Compact codec (v1) + legacy decoder + reconstructSlots
     shareSupport.ts     # Clipboard / Web-Share feature detection (pure)
     sort.ts             # sortSlots / shuffleSlots
-  __tests__/            # ~350 tests, 33 files; hand-rolled harness (harness.tsx),
+  __tests__/            # 369 tests, 36 files (July 2026); hand-rolled harness (harness.tsx),
                         # no testing-library. Node env by default; DOM tests opt in
                         # via `// @vitest-environment jsdom` per file.
 ```

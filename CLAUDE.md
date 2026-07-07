@@ -2,6 +2,24 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## New to this repo? Read in this order
+
+1. `docs/contracts.md` — must-read before touching persistence, share links, or the schema: the surfaces that break user data or saved links if changed.
+2. `docs/decisions.md` — check here before "fixing" anything that looks wrong: deliberate keeps and rejected alternatives, cited by §number across the docs.
+3. `ARCHITECTURE.md` — how the shipped code actually works; where it and the code disagree, the code wins.
+4. `docs/tech-debt.md` — the known-debt and platform-quirk register (a register, not a work queue).
+5. `docs/roadmap.md` — shipped / pending device validation / scoped-but-unbuilt / dropped-do-not-build.
+6. `docs/ui-overhaul-brief.md` — design rationale for the interaction layer; the §-references the other docs cite.
+
+## Looks wrong, isn't — check `docs/decisions.md` first
+
+- localStorage keys still say `mtg-chart:*` — user-data keys; renaming them orphans every saved chart (§1)
+- No runtime deps beyond react + lz-string — hand-rolled on purpose; a new dep needs owner sign-off (§2)
+- `public/og-image.png` shows the old branding — the repo's one tracked TODO; the meta tags are already correct (§3)
+- Grid shrink recompacts cards instead of blocking — adjudicated behaviour, not a bug (§5)
+- Per-cell overlay buttons (×, ⇄, ↺) are `aria-hidden` + `tabIndex={-1}` — pointer accelerators, not an a11y bug; do not "fix" them into the tab order (§6)
+- BottomSheet has no focus trap, backdrop, or `inert` — deliberately non-modal (§7)
+
 ## Commands
 
 ```bash
@@ -14,9 +32,9 @@ npm run format    # prettier --write .
 
 `npm run build && npm run lint && npm run test` is the full correctness gate — all three
 must pass clean before every commit, and CI (`.github/workflows/ci.yml`) runs the same
-three on every push/PR to `main`. The suite is ~350 tests across 33 files in
-`src/__tests__/` as of the July 2026 handoff audit — the gate output, not this number,
-is the source of truth. Keeping it green is required (a red suite on `main` is what
+three on every push/PR to `main`. The suite is 369 tests across 36 files in
+`src/__tests__/` as of the July 2026 handoff (066de9c) — the gate output, not this
+number, is the source of truth. Keeping it green is required (a red suite on `main` is what
 motivated a dedicated repair phase once — don't ship past it).
 
 ## Working agreement
@@ -24,9 +42,9 @@ motivated a dedicated repair phase once — don't ship past it).
 - Build one phase at a time; summarise decisions after each phase
 - Do not start the next phase without explicit user confirmation
 - Flag ambiguities not covered by `ARCHITECTURE.md` rather than guessing
-- Before "fixing" anything that looks odd, check `docs/tech-debt.md` — the register of
-  known debt, platform quirks, and deliberate keeps. Several things that look like bugs
-  are decisions.
+- Before "fixing" anything that looks odd, check `docs/decisions.md` (deliberate keeps —
+  several things that look like bugs are decisions) and `docs/tech-debt.md` (known debt
+  and platform quirks).
 - Do not add `Co-Authored-By` to commits
 
 ## TypeScript constraints
