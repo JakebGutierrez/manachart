@@ -25,8 +25,8 @@ Rationale for decisions is [decisions.md](decisions.md); compatibility rules are
 | Phase 22.5 — hardening (persistence safety, share resilience, decode hardening, import indexing, undo correctness, printings pagination, parser) | [phase-22.5-findings.md](phase-22.5-findings.md) (historical) |
 | Audit remediation — CI, `vercel.json` CSP/headers, OG/meta tags, README, deterministic export geometry (`exportGeometry.ts`), self-hosted fonts | [audit-findings.md](audit-findings.md) (historical), `.github/workflows/ci.yml` |
 | Shareability bundle — copy image to clipboard, Web Share, duplicate chart, search-syntax hint | `useExport.ts` disposals, `duplicateChart.ts`, SearchPanel |
-| UI overhaul Phases 0–3 — quick wins, Dialog primitive, keyboard/selection spine, pointer-unified movement (HTML5 DnD deleted) | `ui-overhaul-brief.md` §3–§4, PR #6, `src/interaction/` |
-| UI overhaul Phase 4 — responsive re-tier (docked/drawer, BottomSheet, safe areas, layout contract test) | PR #7, `useLayoutMode.ts`, `layoutContract.test.ts` |
+| UI overhaul Phases 0–3 — quick wins, Dialog primitive, keyboard/selection spine, pointer-unified movement (HTML5 DnD deleted) | `ui-overhaul-brief.md` §3–§4, [phase-3-touch-matrix.md](phase-3-touch-matrix.md) (PR #6), `src/interaction/` |
+| UI overhaul Phase 4 — responsive re-tier (docked/drawer, BottomSheet, safe areas, layout contract test) | [phase-4-pr-notes.md](phase-4-pr-notes.md) (PR #7), `useLayoutMode.ts`, `layoutContract.test.ts` |
 | Rename → Mana Chart / manachart.app (code, copy, domain; **not** localStorage keys — [decisions.md](decisions.md) §1) | PR #8 |
 | Handoff knowledge capture — tech-debt register, doc sync, decision log, contracts, this file | `docs/` |
 
@@ -37,7 +37,8 @@ hardware behaviour have not been validated on a device** (tech-debt B2,
 [decisions.md](decisions.md) §4). The owner pass is ~30 minutes:
 
 - Scripts: [phase-4-device-test.md](phase-4-device-test.md) (viewport walk +
-  phone/tablet checklist), the Phase 3 touch matrix in PR #6 (commit `24ca4e5`,
+  phone/tablet checklist), the Phase 3 touch matrix in
+  [phase-3-touch-matrix.md](phase-3-touch-matrix.md) (PR #6; commit `24ca4e5`,
   "Real-phone feel pass still required"), and the headless probe
   `npm run test:layout` (needs local Chrome; not part of the gate).
 - Staged tunables (anticipated fixes are one-line constant tweaks):

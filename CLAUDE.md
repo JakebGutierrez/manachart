@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## New to this repo? Read in this order
 
+`contracts.md` is absolute; `decisions.md` is evidence-gated — its Rejected entries are priced alternatives that can be revisited with evidence, not tombstones.
+
 1. `docs/contracts.md` — must-read before touching persistence, share links, or the schema: the surfaces that break user data or saved links if changed.
 2. `docs/decisions.md` — check here before "fixing" anything that looks wrong: deliberate keeps and rejected alternatives, cited by §number across the docs.
 3. `ARCHITECTURE.md` — how the shipped code actually works; where it and the code disagree, the code wins.

@@ -47,8 +47,9 @@ not duplicated here.
   responsive re-tier (safe areas, drawer, bottom sheet) are implemented and
   jsdom-tested to the extent jsdom allows; **feel and hardware behaviour are not yet
   validated on a device**. Scripts are committed: [phase-4-device-test.md](phase-4-device-test.md)
-  (owner session, ~15 min), the Phase 3 touch matrix in PR #6 / commit `24ca4e5`
-  ("Real-phone feel pass still required"), and the headless probe `npm run test:layout`
+  (owner session, ~15 min), the Phase 3 touch matrix in
+  [phase-3-touch-matrix.md](phase-3-touch-matrix.md) (PR #6 / commit `24ca4e5`,
+  "Real-phone feel pass still required"), and the headless probe `npm run test:layout`
   (needs local Chrome; not part of the gate).
 - **Why:** jsdom cannot exercise real touch gestures, Safari toolbars, or notches.
 - **Risk:** feel-level issues (accidental drag arms, scroll conflicts, safe-area

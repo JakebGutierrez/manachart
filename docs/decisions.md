@@ -59,7 +59,8 @@ here before fixing anything that looks odd.**
   hardware pass deferred to an owner session (tech-debt B2).
 - **Why:** jsdom can't exercise real gestures, Safari toolbars, or notches.
   Scripts are committed ([phase-4-device-test.md](phase-4-device-test.md), the
-  Phase 3 matrix in PR #6, `npm run test:layout`), and every feel tunable is a
+  Phase 3 matrix in [phase-3-touch-matrix.md](phase-3-touch-matrix.md) (PR #6),
+  `npm run test:layout`), and every feel tunable is a
   named constant: `LONG_PRESS_MS = 400` / `TOUCH_SLOP_PX = 10`
   ([usePointerDrag.ts:46-47](../src/interaction/usePointerDrag.ts#L46-L47)),
   `LAYOUT_BREAKPOINT_PX = 900`
