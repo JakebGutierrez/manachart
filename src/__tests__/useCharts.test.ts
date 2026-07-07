@@ -86,6 +86,88 @@ describe('loadOrInit — localStorage paths', () => {
   })
 })
 
+describe('loadOrInit — all-or-nothing store abandonment (contracts.md §1: no per-chart salvage BY DESIGN)', () => {
+  it('ONE malformed chart among valid ones abandons the ENTIRE store — do not "improve" this into per-chart salvage without updating contracts.md first', () => {
+    const good = makeStoredChart({ id: 'good-chart' })
+    const bad = { id: 42, gridRows: 'nope' } // fails isChartShaped
+    localStorageStub.setItem('mtg-chart:charts', JSON.stringify([good, bad]))
+    localStorageStub.setItem('mtg-chart:activeId', 'good-chart')
+
+    const { charts, activeId } = loadOrInit()
+    expect(charts).toHaveLength(1)
+    expect(charts[0].id).not.toBe('good-chart')
+    expect(activeId).toBe(charts[0].id)
+  })
+
+  it('an empty stored array is abandoned (the non-empty gate) — fresh default instead', () => {
+    localStorageStub.setItem('mtg-chart:charts', JSON.stringify([]))
+    const { charts } = loadOrInit()
+    expect(charts).toHaveLength(1)
+    expect(charts[0].schemaVersion).toBe(4)
+  })
+})
+
+describe('loadOrInit — load-path order (contracts.md §1: parse → isChartShaped → migrateAll → sanitize)', () => {
+  it('a stored v1 chart (no crop/sort fields, no heroConfig) passes the shape gate BEFORE migration — strengthening isChartShaped to require modern fields orphans every v1 store in the wild', () => {
+    // Raw v1 literal: slots lack cropX/cropY/cropScale and cmc/colors/typeLine,
+    // the chart lacks heroConfig. Dirty dims/background prove sanitize runs too.
+    const v1Chart = {
+      id: 'v1-survivor',
+      name: 'Ancient',
+      schemaVersion: 1,
+      gridRows: 9999,
+      gridCols: 2,
+      layout: 'uniform',
+      displayMode: 'landscape',
+      nameDisplayMode: 'none',
+      title: '',
+      backgroundColor: 'url(https://attacker/x.png)',
+      cellGap: 4,
+      padding: 16,
+      cornerRadius: 4,
+      slots: [
+        {
+          kind: 'scryfall',
+          scryfallId: 'abc',
+          oracleId: 'o',
+          cardName: 'Lightning Bolt',
+          setCode: 'm20',
+          collectorNumber: '150',
+          layout: 'normal',
+          selectedFaceIndex: 0,
+          imageUris: [{ artCrop: 'https://x/a.jpg' }],
+        },
+        null,
+      ],
+    }
+    localStorageStub.setItem('mtg-chart:charts', JSON.stringify([v1Chart]))
+    localStorageStub.setItem('mtg-chart:activeId', 'v1-survivor')
+
+    const { charts, activeId } = loadOrInit()
+    // Not abandoned: the v1 chart survived the shape gate.
+    expect(charts).toHaveLength(1)
+    expect(charts[0].id).toBe('v1-survivor')
+    expect(activeId).toBe('v1-survivor')
+    // Migrated: v1→v2 crop defaults, v2→v3 heroConfig, v3→v4 sort fields.
+    expect(charts[0].schemaVersion).toBe(4)
+    const slot = charts[0].slots[0]
+    expect(slot).not.toBeNull()
+    if (slot === null) return
+    expect(slot.cropX).toBe(0.5)
+    expect(slot.cropY).toBe(0.5)
+    expect(slot.cropScale).toBe(1.0)
+    expect(charts[0].heroConfig).toEqual([])
+    if (slot.kind === 'scryfall') {
+      expect(slot.cmc).toBeNull()
+      expect(slot.colors).toBeNull()
+      expect(slot.typeLine).toBeNull()
+    }
+    // Sanitized after migration: dims clamped, unsafe background replaced.
+    expect(charts[0].gridRows).toBe(10)
+    expect(charts[0].backgroundColor).toBe('#0b0c0e')
+  })
+})
+
 describe('loadOrInit — share link paths', () => {
   it('compact ?c=: sets isReconstructing, pendingReconstruction, consumedShareParam', () => {
     const chart = makeStoredChart({ name: 'Imported' })

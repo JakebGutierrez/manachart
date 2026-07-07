@@ -183,6 +183,52 @@ describe('titleFont in share link', () => {
     const tampered = LZString.compressToEncodedURIComponent(JSON.stringify(payload))
     expect(decodeSharePayload(tampered).kind).toBe('error')
   })
+
+  it('encode-side allowlist: a titleFont outside ALLOWED_TITLE_FONTS is OMITTED at encode (contracts.md §2) — dropping this gate mints links every decoder rejects on arrival', () => {
+    const chart = makeChart({ titleFont: 'Papyrus' })
+    const { encoded } = encodeShareLink(chart)
+    // Inspect the raw payload, not just the decode result: the decoder would
+    // reject a payload that carried the rogue font, so the link must never
+    // carry it in the first place.
+    const payload = JSON.parse(LZString.decompressFromEncodedURIComponent(encoded)!) as {
+      c: Record<string, unknown>
+    }
+    expect('titleFont' in payload.c && payload.c.titleFont !== undefined).toBe(false)
+    expect(decodeSharePayload(encoded).kind).toBe('compact')
+  })
+})
+
+// ─── Unknown-field tolerance ──────────────────────────────────────────────────
+
+describe('decodeSharePayload — unknown-field tolerance (contracts.md §2: what makes additive payload fields backward-compatible; do not add strictness)', () => {
+  function tamper(mutate: (payload: { c: Record<string, unknown>; s: unknown[] } & Record<string, unknown>) => void): string {
+    const { encoded } = encodeShareLink(makeChart({ slots: [makeScryfallSlot()] }))
+    const payload = JSON.parse(LZString.decompressFromEncodedURIComponent(encoded)!) as {
+      c: Record<string, unknown>
+      s: unknown[]
+    } & Record<string, unknown>
+    mutate(payload)
+    return LZString.compressToEncodedURIComponent(JSON.stringify(payload))
+  }
+
+  it('tolerates unknown keys in c and spreads them through — a link minted by a NEWER build with an extra chart field must keep opening here', () => {
+    const result = decodeSharePayload(tamper((p) => { p.c.futureField = 'from-a-newer-build' }))
+    expect(result.kind).toBe('compact')
+    if (result.kind !== 'compact') return
+    expect((result.payload.c as unknown as Record<string, unknown>).futureField).toBe('from-a-newer-build')
+  })
+
+  it('tolerates unknown top-level payload keys', () => {
+    const result = decodeSharePayload(tamper((p) => { p.extra = { anything: true } }))
+    expect(result.kind).toBe('compact')
+  })
+
+  it('tolerates unknown keys on a slot stub', () => {
+    const result = decodeSharePayload(tamper((p) => {
+      ;(p.s[0] as Record<string, unknown>).w = 3
+    }))
+    expect(result.kind).toBe('compact')
+  })
 })
 
 // ─── Legacy compatibility ─────────────────────────────────────────────────────
@@ -205,6 +251,53 @@ describe('decodeSharePayload — legacy fallback', () => {
     expect(result.kind).toBe('error')
     if (result.kind !== 'error') return
     expect(result.message).toMatch(/invalid|expired/i)
+  })
+
+  it('migrates an old-schema (v1) legacy chart on decode — legacy links in the wild predate the current schema (contracts.md §2 legacy path)', () => {
+    // A realistic v1 chart: no crop fields or sort fields on the slot, no
+    // heroConfig on the chart. Built as a raw literal so nothing modern leaks in.
+    const v1Chart = {
+      id: 'legacy-1',
+      name: 'Old Link',
+      schemaVersion: 1,
+      gridRows: 2,
+      gridCols: 2,
+      layout: 'uniform',
+      displayMode: 'landscape',
+      nameDisplayMode: 'none',
+      title: '',
+      backgroundColor: '#000',
+      cellGap: 4,
+      padding: 16,
+      cornerRadius: 4,
+      slots: [
+        {
+          kind: 'scryfall',
+          scryfallId: 'abc',
+          oracleId: 'o',
+          cardName: 'Lightning Bolt',
+          setCode: 'm20',
+          collectorNumber: '150',
+          layout: 'normal',
+          selectedFaceIndex: 0,
+          imageUris: [{ artCrop: 'https://x/a.jpg' }],
+        },
+        null,
+      ],
+    }
+    const raw = btoa(encodeURIComponent(JSON.stringify(v1Chart)))
+
+    const result = decodeSharePayload(raw)
+    expect(result.kind).toBe('legacy')
+    if (result.kind !== 'legacy') return
+
+    expect(result.chart.schemaVersion).toBe(4)
+    const slot = result.chart.slots[0] as ScryfallSlot
+    expect(slot.cropX).toBe(0.5)
+    expect(slot.cropY).toBe(0.5)
+    expect(slot.cropScale).toBe(1.0)
+    expect(slot.cmc).toBeNull()
+    expect(result.chart.heroConfig).toEqual([])
   })
 })
 

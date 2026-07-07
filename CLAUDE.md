@@ -50,7 +50,7 @@ The central type is `Chart` in `src/types/chart.ts`. Key details:
 
 `generateCellMap(rows, cols, heroConfig)` in `src/utils/cellMap.ts` produces the `CellMap` — the grid renderer consumes this and never computes slot positions itself. In uniform mode every cell is `{ kind: 'slot', slotIndex: i }`. The union also has `'hero'` (a spanning cell) and `'covered'` (occupied by an adjacent hero); `covered` cells must render `null` (no DOM node) and carry a `heroSlotIndex` back-pointer so keyboard navigation and drop targeting resolve covered → hero (derived at render, never persisted). All downstream logic (drop targets, "next empty", capacity, numbering) filters on `kind !== 'covered'`.
 
-React keys in the grid must be `cell.slotIndex`, not array index. Cells render `<img>` with `object-fit: cover` (never `background-image`) — the `.cardImg` class in `Grid.module.css`. Every `<img>` that loads Scryfall art (grid, crop preview, search results, printing thumbnails) must carry `crossOrigin="anonymous"` so all paths share one CORS-usable HTTP cache entry with the export's `fetch(mode: 'cors')` — dropping it anywhere reintroduces cold-cache export failures, and no test currently enforces it.
+React keys in the grid must be `cell.slotIndex`, not array index. Cells render `<img>` with `object-fit: cover` (never `background-image`) — the `.cardImg` class in `Grid.module.css`. Every `<img>` that loads Scryfall art (grid, crop preview, search results, printing thumbnails) must carry `crossOrigin="anonymous"` so all paths share one CORS-usable HTTP cache entry with the export's `fetch(mode: 'cors')` — dropping it anywhere reintroduces cold-cache export failures; `src/__tests__/crossOrigin.app.test.tsx` fences every rendered art path.
 
 ## Interaction
 

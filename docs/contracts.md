@@ -63,6 +63,16 @@ rollback without losing charts a newer build wrote.
    numeric dims, `slots` array whose every slot is well-shaped (scryfall slots:
    non-empty `imageUris`, string `artCrop` per face, in-range `selectedFaceIndex`;
    custom slots: string `localImageDataUrl`/`label`, numeric crop fields).
+   Because this gate runs **before** migration, it must stay tolerant of
+   historical slot shapes: a v1 scryfall slot has no crop fields and no
+   `cmc`/`colors`/`typeLine`, and must still pass — strengthening the gate to
+   require modern fields silently abandons every v1 store in the wild
+   (fenced in [useCharts.test.ts](../src/__tests__/useCharts.test.ts),
+   "load-path order"). The stricter custom-slot requirements (numeric crop
+   fields) are safe despite this: custom slots shipped in Phase 17, **after**
+   schema v2 introduced the crop fields, so no v1 chart in the wild can contain
+   a custom slot (verified against git history, July 2026 — `500fa1e` postdates
+   `3e47ce9`).
 3. `migrateAll` (chain above).
 4. `sanitizeChartConfig` per chart ([sanitizeChart.ts:67-78](../src/utils/sanitizeChart.ts#L67-L78)):
    dims clamped to 1–10, invalid hero items dropped, background restricted to
@@ -286,11 +296,14 @@ allocation flowing through the shared `exportPixelDims` so they can't disagree
 
 | Contract | Tests |
 |---|---|
+| localStorage key literals, plain-string `activeId`, corrupt-store overwrite-on-next-write, `pagehide` flush | [contracts.storage.test.ts](../src/__tests__/contracts.storage.test.ts) |
 | Migration chain, unknown versions | [schemaVersion.test.ts](../src/__tests__/schemaVersion.test.ts) |
-| Codec round-trip, allowlist, legacy, unknown `v`, face clamp | [shareLink.test.ts](../src/__tests__/shareLink.test.ts) |
+| Codec round-trip, titleFont allowlist (both ends), legacy incl. v1 migration, unknown `v`, face clamp, unknown-field tolerance | [shareLink.test.ts](../src/__tests__/shareLink.test.ts) |
+| Mint-side `?c=` param name + copy-link → decoder round-trip | [shareUrl.app.test.tsx](../src/__tests__/shareUrl.app.test.tsx) |
 | Chunking, 429 backoff, failure/retry reducers, placeholder exclusion | [reconstruct.test.ts](../src/__tests__/reconstruct.test.ts) |
 | Sanitization gates (dims, hero, colour, capacity, slot shape) | [sanitizeChart.test.ts](../src/__tests__/sanitizeChart.test.ts), [decodeHardening.test.ts](../src/__tests__/decodeHardening.test.ts) |
 | Quota handling, debounce/flush scheduler | [useCharts.persist.test.ts](../src/__tests__/useCharts.persist.test.ts) |
 | Failed-share placeholder claim/persist semantics | [failedShare.persist.test.tsx](../src/__tests__/failedShare.persist.test.tsx) |
-| Load/CRUD/active-id behaviour | [useCharts.test.ts](../src/__tests__/useCharts.test.ts) |
+| Load/CRUD/active-id behaviour, all-or-nothing abandonment, load-path order (v1 shape tolerance) | [useCharts.test.ts](../src/__tests__/useCharts.test.ts) |
+| `crossOrigin="anonymous"` on every Scryfall art `<img>` (tech-debt F5) | [crossOrigin.app.test.tsx](../src/__tests__/crossOrigin.app.test.tsx) |
 | Export sizing determinism | [exportGeometry.test.ts](../src/__tests__/exportGeometry.test.ts) |

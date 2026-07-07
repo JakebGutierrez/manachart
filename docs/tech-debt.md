@@ -241,8 +241,10 @@ this list exists so nobody "simplifies" one away.
   share one CORS-usable HTTP cache entry with the export's `fetch(mode:'cors')`
   ([Grid/index.tsx:311](../src/components/Grid/index.tsx#L311-L315), ARCHITECTURE
   "CORS handling"). Dropping the attribute anywhere reintroduces cold-cache export
-  failures. **Not currently test-enforced** — a cheap source-contract test (grep all
-  art `<img>` sites) would fence it. Effort: S.
+  failures. **Test-enforced since July 2026**:
+  [crossOrigin.app.test.tsx](../src/__tests__/crossOrigin.app.test.tsx) asserts the
+  attribute on every rendered Scryfall art path (grid cell, selected-card preview,
+  search results, printing thumbnails, drag ghost).
 - **F6 — Scoped non-passive `touchmove`:** during an armed touch drag only, a
   document-level non-passive listener `preventDefault()`s scrolling; attached at
   arm, removed on every terminal path ([usePointerDrag.ts:150](../src/interaction/usePointerDrag.ts#L150-L157)).
