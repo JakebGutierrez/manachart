@@ -71,6 +71,12 @@ explains *why the rename was safe to do when it was, and would not be later.*
 - **Do not:** add a runtime dependency without explicit owner sign-off. Neither
   lz-string nor `@fontsource` is precedent — one had a written justification,
   the other isn't code.
+- **Added 2026-07-08 (owner sign-off):** `@vercel/speed-insights`, mounted as
+  `<SpeedInsights />` in [main.tsx](../src/main.tsx). It ships ~1–2 KB gzipped and
+  beacons Core Web Vitals to Vercel from the deployed site only (no-op in dev, and
+  inert off Vercel). This is the second deliberately-added runtime library after
+  lz-string; it is host-telemetry glue, not app logic, so it is **not** precedent
+  for adding functional dependencies. Remove it if the app ever leaves Vercel.
 
 ### 3. `public/og-image.png` still shows the old branding
 
